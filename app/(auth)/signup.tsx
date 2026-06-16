@@ -55,6 +55,15 @@ const Signup = () => {
         return;
       }
 
+      // Step 4.5: Save the user's name, role, and status to our profiles table
+      // drivers start as "pending" (need admin approval), customers are "approved" immediately
+      await supabase.from("profiles").insert({
+        id: data.user?.id, // link to the auth user we just created
+        full_name: fullName, // the name they typed in the form
+        role: role, // "driver" or "customer"
+        status: role === "driver" ? "pending" : "approved",
+      });
+
       // Step 5: If signup worked, go to the right screen based on role
       if (role === "driver") {
         router.replace("/(driver)/requirements");
