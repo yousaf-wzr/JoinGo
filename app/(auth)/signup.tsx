@@ -1,6 +1,7 @@
 import Button from "@/components/button";
 import OrDivider from "@/components/divider";
 import InputField from "@/components/text-Input";
+import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -29,30 +30,43 @@ const Signup = () => {
   };
 
   const handleSignup = async () => {
+    // Step 2: Check if fields are empty
     if (!fullName || !email || !password) {
-      // Alert.alert("Error", "Please fill in all fields.");
+      Alert.alert("Error", "Please fill in all fields.");
       return;
     }
 
     setLoading(true);
 
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // Step 3: Call Supabase to create a new account
+      // This sends email + password to Supabase Auth
+      const { data, error } = await supabase.auth.signUp({
+        email: email,
+        password: password,
+        options: {
+          data: { full_name: fullName }, // Save name in user profile
+        },
+      });
 
+      // Step 4: If Supabase returns an error, show it
+      if (error) {
+        Alert.alert("Signup Failed", error.message);
+        return;
+      }
+
+      // Step 5: If signup worked, go to the right screen based on role
       if (role === "driver") {
         router.replace("/(driver)/requirements");
-      } 
-      else if (role === "customer" || role === "passenger") {
-        // adjust this path to your actual home screen
+      } else if (role === "customer" || role === "passenger") {
         router.replace("/(customer)");
-      } 
-      else {
-        // Alert.alert("Error", "Invalid role. Please select driver or customer.");
+      } else {
+        Alert.alert("Error", "Invalid role. Please select driver or customer.");
       }
     } catch (error) {
-      // Alert.alert("Error", "Something went wrong. Please try again.");
+      Alert.alert("Error", "Something went wrong. Please try again.");
     } finally {
+      // Step 6: Always stop the loading spinner at the end
       setLoading(false);
     }
   };
