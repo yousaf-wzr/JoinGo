@@ -1,4 +1,5 @@
 import OfferCard, { VehicleIcon } from "@/components/offerCard";
+import { supabase } from "@/config/supabaseConfig"; // ← NEW: to save booking to DB
 import COLORS from "@/constants/color";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -15,18 +16,26 @@ import MapView, { Circle, Marker } from "react-native-maps";
 
 export default function OffersScreen() {
   const router = useRouter();
-  const { pickupLat, pickupLng, price, distanceKm, vehicleType } =
-    useLocalSearchParams();
+
+  // ← NEW: also grab pickup & dropoff address text from params
+  const {
+    pickupLat,
+    pickupLng,
+    price,
+    distanceKm,
+    vehicleType,
+    pickup,
+    dropoff,
+  } = useLocalSearchParams();
 
   const [offers, setOffers] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(true);
 
   const pickupPulse = useRef(new Animated.Value(0)).current;
   const mapRef = useRef<MapView>(null);
+  const [pulseRadius, setPulseRadius] = useState(50);
 
-  const [pulseRadius, setPulseRadius] = useState(50); // initial radius in meters
-
-  // Start pulse animation
+  // Pulse animation — makes the circle on the map grow and shrink
   useEffect(() => {
     const loop = () => {
       Animated.sequence([
@@ -34,7 +43,7 @@ export default function OffersScreen() {
           toValue: 1,
           duration: 1800,
           easing: Easing.out(Easing.ease),
-          useNativeDriver: false, // must be false for Circle
+          useNativeDriver: false,
         }),
         Animated.timing(pickupPulse, {
           toValue: 0,
@@ -46,10 +55,8 @@ export default function OffersScreen() {
     loop();
   }, []);
 
-  // Update state from Animated.Value
   useEffect(() => {
     const listenerId = pickupPulse.addListener(({ value }) => {
-      // Map value [0,1] to radius [50, 200] meters
       setPulseRadius(50 + value * 150);
     });
     return () => {
@@ -57,7 +64,7 @@ export default function OffersScreen() {
     };
   }, []);
 
-  // Generate driver offers
+  // Generate fake driver offers (still fake for now — real drivers come later)
   useEffect(() => {
     const generateOffers = () =>
       Array.from({ length: 5 }).map((_, i) => {
@@ -115,11 +122,37 @@ export default function OffersScreen() {
           {
             edgePadding: { top: 180, bottom: 300, left: 150, right: 150 },
             animated: true,
-          }
+          },
         );
       }
     }, 2000);
   }, []);
+
+  // ← NEW: this runs when customer taps "Book" on a driver offer
+  const handleBook = async (item: any) => {
+    // Step 1: Find out who is logged in
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Step 2: Save the booking to our "bookings" table in Supabase
+    // Think of this like filling out a form and submitting it to a database
+    await supabase.from("bookings").insert({
+      customer_id: user.id, // who is booking
+      pickup: pickup, // where to pick them up (address text)
+      dropoff: dropoff, // where to drop them off (address text)
+      price: item.price, // price the driver offered
+      vehicle_type: item.vehicle.type, // Car / Motorcycle / Van
+      status: "pending", // waiting for driver to accept
+    });
+
+    // Step 3: Go to the booking screen as before
+    router.push({
+      pathname: "/booking",
+      params: { booking: JSON.stringify(item) },
+    });
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -134,16 +167,15 @@ export default function OffersScreen() {
             longitudeDelta: 0.02,
           }}
         >
-          {/* Pickup pulse circle */}
           <Circle
             center={{
               latitude: Number(pickupLat),
               longitude: Number(pickupLng),
             }}
-            radius={pulseRadius} // radius animates
-            strokeColor={COLORS.primary} // line color
-            strokeWidth={1} // line thickness
-            fillColor="transparent" // makes it only a ring
+            radius={pulseRadius}
+            strokeColor={COLORS.primary}
+            strokeWidth={1}
+            fillColor="transparent"
           />
 
           <Marker
@@ -164,7 +196,6 @@ export default function OffersScreen() {
             />
           </Marker>
 
-          {/* Driver markers */}
           {offers.map((driver) => (
             <Marker
               key={driver.id}
@@ -196,7 +227,6 @@ export default function OffersScreen() {
         </MapView>
       </View>
 
-      {/* Bottom sheet */}
       <View style={styles.bottomSheet}>
         {isSearching ? (
           <Text style={styles.searchingText}>
@@ -209,12 +239,7 @@ export default function OffersScreen() {
             renderItem={({ item }) => (
               <OfferCard
                 item={item}
-                onPressBook={() =>
-                  router.push({
-                    pathname: "/booking",
-                    params: { booking: JSON.stringify(item) },
-                  })
-                }
+                onPressBook={() => handleBook(item)} // ← now calls handleBook instead
               />
             )}
             contentContainerStyle={{ paddingBottom: 20 }}

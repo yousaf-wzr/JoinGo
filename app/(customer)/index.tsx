@@ -176,6 +176,8 @@ const HomeScreen: React.FC = () => {
         price: price || 0,
         distanceKm: distanceKm || 0,
         vehicleType,
+        pickup, // ← NEW: the actual address text e.g. "Mingora, KPK"
+        dropoff, // ← NEW: the actual address text e.g. "Malamjaba"
       },
     });
   };
