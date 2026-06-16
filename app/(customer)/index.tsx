@@ -1,4 +1,5 @@
 import InputField from "@/components/text-Input";
+import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
 import {
@@ -33,9 +34,32 @@ const haversineDistance = (coords1: any, coords2: any) => {
 };
 
 const HomeScreen: React.FC = () => {
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [location, setLocation] = useState<Location.LocationObject | null>(
+    null,
+  );
   const [address, setAddress] = useState<string>("Fetching location...");
-  const [username] = useState("Nabi");
+  const [username, setUsername] = useState("there"); // "there" is fallback → "Welcome, there"
+
+  // Fetch the real logged-in user's name from Supabase
+  useEffect(() => {
+    const fetchUser = async () => {
+      // 1. Ask Supabase "who is currently logged in?"
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return; // not logged in, do nothing
+
+      // 2. Use their ID to get their name from our profiles table
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", user.id) // find the row where id matches logged-in user
+        .single(); // we expect only one result
+
+      if (profile) setUsername(profile.full_name);
+    };
+    fetchUser();
+  }, []); // [] means run once when the screen loads
 
   const [pickup, setPickup] = useState("");
   const [isPickupEdited, setIsPickupEdited] = useState(false);
@@ -90,7 +114,7 @@ const HomeScreen: React.FC = () => {
             longitude: loc.coords.longitude + (Math.random() - 0.5) * 0.02,
           }));
           setNearbyVehicles(randomVehicles);
-        }
+        },
       );
     })();
   }, []);
@@ -120,7 +144,9 @@ const HomeScreen: React.FC = () => {
           setDistanceKm(distance);
 
           // Calculate price based on vehicle type
-          const calculatedPrice = Math.round(distance * priceRates[vehicleType]);
+          const calculatedPrice = Math.round(
+            distance * priceRates[vehicleType],
+          );
           setPrice(calculatedPrice);
 
           // Draw straight polyline
@@ -149,8 +175,8 @@ const HomeScreen: React.FC = () => {
         dropoffLng: dropoffCoords.longitude,
         price: price || 0,
         distanceKm: distanceKm || 0,
-        vehicleType
-      }
+        vehicleType,
+      },
     });
   };
 
