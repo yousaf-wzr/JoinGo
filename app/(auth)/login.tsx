@@ -1,12 +1,13 @@
 import Button from "@/components/button";
 import OrDivider from "@/components/divider";
 import InputField from "@/components/text-Input";
+import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
+  Alert,
   Image,
   SafeAreaView,
   StyleSheet,
@@ -15,33 +16,64 @@ import {
   View,
 } from "react-native";
 
-const Signup = () => {
+const Login = () => {
+  // ← FIXED: was named "Signup"
   const router = useRouter();
-  const { role } = useLocalSearchParams(); // Get role from previous screen
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSignin = () => {
-    // Pass role again when navigating to signup
-    router.push({ pathname: "/(auth)/signup", params: { role } });
-  };
-
-  const handleSignup = async () => {
-    setLoading(true);
-
-    // Save role in AsyncStorage
-    await AsyncStorage.setItem("userRole", role || "");
-
-    // Navigate based on role
-    if (role === "driver") {
-      router.replace("/(driver)/requirements");
-    } else {
-      router.replace("/(customer)");
+  const handleLogin = async () => {
+    // Step 1: Check fields are not empty
+    if (!email || !password) {
+      Alert.alert("Error", "Please fill in all fields.");
+      return;
     }
 
-    setLoading(false);
+    setLoading(true);
+
+    try {
+      // Step 2: Ask Supabase to check email + password
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      // Step 3: If wrong email/password, show error
+      if (error) {
+        Alert.alert("Login Failed", error.message);
+        return;
+      }
+
+      // Step 4: Get this user's role from our profiles table
+      // We can't trust params for role — always read from DB after login
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role, status")
+        .eq("id", data.user.id)
+        .single();
+
+      // Step 5: Navigate based on role
+      if (profile?.role === "driver") {
+        // Check if driver is approved
+        if (profile.status === "pending") {
+          Alert.alert(
+            "Pending Approval",
+            "Your driver account is still under review. Please wait for approval.",
+          );
+          await supabase.auth.signOut(); // log them out until approved
+          return;
+        }
+        router.replace("/(driver)/driverHome");
+      } else {
+        router.replace("/(customer)");
+      }
+    } catch (e) {
+      Alert.alert("Error", "Something went wrong. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -57,7 +89,7 @@ const Signup = () => {
 
       {/* Title */}
       <View style={styles.textContainer}>
-        <Text style={styles.text}>Welcome {role ? role.toUpperCase() : ""}</Text>
+        <Text style={styles.text}>Welcome Back</Text>
       </View>
 
       {/* Input Fields */}
@@ -71,7 +103,6 @@ const Signup = () => {
             value={email}
             onChangeText={setEmail}
           />
-
           <InputField
             label="Password"
             placeholder="Password"
@@ -80,14 +111,12 @@ const Signup = () => {
             value={password}
             onChangeText={setPassword}
           />
-
           <Button
             label={loading ? "Signing In..." : "Sign In"}
-            onPress={handleSignup}
+            onPress={handleLogin}
             disabled={loading}
             style={{ marginTop: 25 }}
           />
-
           <OrDivider />
         </View>
 
@@ -95,7 +124,7 @@ const Signup = () => {
         <View style={styles.footerButtonContainer}>
           <Text style={styles.footerButtonText}>
             Don't have an account?{" "}
-            <TouchableOpacity onPress={handleSignin}>
+            <TouchableOpacity onPress={() => router.push("/(role)")}>
               <Text style={{ color: COLORS.primary }}>Sign Up</Text>
             </TouchableOpacity>
           </Text>
@@ -105,13 +134,10 @@ const Signup = () => {
   );
 };
 
-export default Signup;
+export default Login;
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "white",
-  },
+  container: { flex: 1, backgroundColor: "white" },
   imageContainer: {
     position: "absolute",
     width: "100%",
@@ -120,30 +146,15 @@ const styles = StyleSheet.create({
     left: 0,
     zIndex: 1,
   },
-  image: {
-    width: "100%",
-    height: "100%",
-  },
-  textContainer: {
-    width: "100%",
-    zIndex: 2,
-    marginLeft: 10,
-    marginTop: 200,
-  },
-  inputContainer: {
-    paddingHorizontal: 15,
-    gap: 20,
-    marginTop: 10,
-  },
+  image: { width: "100%", height: "100%" },
+  textContainer: { width: "100%", zIndex: 2, marginLeft: 10, marginTop: 200 },
+  inputContainer: { paddingHorizontal: 15, gap: 20, marginTop: 10 },
   text: {
     fontFamily: FONTS.medium,
     fontSize: FONTS.size.large,
     color: COLORS.black,
   },
-  footerButtonContainer: {
-    marginTop: 20,
-    alignItems: "center",
-  },
+  footerButtonContainer: { marginTop: 20, alignItems: "center" },
   footerButtonText: {
     fontFamily: FONTS.regular,
     fontSize: FONTS.size.medium,
