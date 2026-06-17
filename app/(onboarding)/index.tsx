@@ -1,11 +1,11 @@
-
 import COLORS from "@/constants/color";
+import AsyncStorage from "@react-native-async-storage/async-storage"; // ← NEW: to remember if user already onboarded
 import { router } from "expo-router";
 import { useRef, useState } from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Swiper from "react-native-swiper";
-import CustomButton from "../../components/button"; // ✅ Ensure correct path
+import CustomButton from "../../components/button";
 
 export const onboarding = [
   {
@@ -13,36 +13,45 @@ export const onboarding = [
     image: require("../../assets/images/onboarding1.png"),
     title: "The perfect ride is just a tap away!",
     description:
-      "Your journey begins with JoinGo. Find your ideal ride effortlessly ",
+      "Your journey begins with JoinGo. Find your ideal ride effortlessly.",
   },
   {
     id: 2,
     image: require("../../assets/images/onboarding2.png"),
     title: "Best car in your hands with JoinGo",
-    description: "Discover the convenience of finding your perfect ride with JoinGo",
+    description:
+      "Discover the convenience of finding your perfect ride with JoinGo.",
   },
   {
     id: 3,
     image: require("../../assets/images/onboarding3.png"),
     title: "Your ride, your way. Let's go!",
-    description: "Enter your destination, site back, and let us take care of the reset.",
+    description:
+      "Enter your destination, sit back, and let us take care of the rest.", // ← FIXED: "reset" → "rest"
   },
 ];
-const Onboarding = () => {
 
+const Onboarding = () => {
   const swiperRef = useRef<Swiper>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const isLastSlide = activeIndex === onboarding.length - 1;
 
+  // ← NEW: this runs when user taps Skip or Get Started
+  // It saves "onboarded = true" so next time app opens, we skip this screen
+  const handleFinish = async () => {
+    // Think of AsyncStorage like a tiny notepad on the phone
+    // We write "hasOnboarded" = "true" so we remember next time
+    await AsyncStorage.setItem("hasOnboarded", "true");
+    router.replace("/(role)");
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Skip Button */}
-      <TouchableOpacity
-        onPress={() => router.replace("(role)")}
-        style={styles.skipButton}
-      >
+      <TouchableOpacity onPress={handleFinish} style={styles.skipButton}>
         <Text style={styles.skipText}>Skip</Text>
       </TouchableOpacity>
+
       {/* Swiper Slides */}
       <Swiper
         ref={swiperRef}
@@ -55,30 +64,29 @@ const Onboarding = () => {
           <View key={item.id} style={styles.slide}>
             <Image
               source={item.image}
-              style={styles.image}
+              style={styles.image} // ← FIXED: added width
               resizeMode="contain"
             />
             <View style={styles.titleContainer}>
               <Text style={styles.title}>{item.title}</Text>
-               <Text style={styles.description}>{item.description}</Text>
+              <Text style={styles.description}>{item.description}</Text>
             </View>
-           
           </View>
         ))}
       </Swiper>
-      {/* Button */}
-     <View style={styles.buttonContainer}>
-          <CustomButton
-        label={isLastSlide ? "Get Started" : "Next"}
-        onPress={() =>
-          isLastSlide
-            ? router.replace("(role)")
-            : swiperRef.current?.scrollBy(1)
-        }
-        style={styles.button}
-      />
-     </View>
-    
+
+      {/* Next / Get Started Button */}
+      <View style={styles.buttonContainer}>
+        <CustomButton
+          label={isLastSlide ? "Get Started" : "Next"}
+          onPress={() =>
+            isLastSlide
+              ? handleFinish() // ← CHANGED: now saves the flag too
+              : swiperRef.current?.scrollBy(1)
+          }
+          style={styles.button}
+        />
+      </View>
     </SafeAreaView>
   );
 };
@@ -89,7 +97,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#fff",
-
   },
   skipButton: {
     width: "100%",
@@ -104,7 +111,7 @@ const styles = StyleSheet.create({
   dot: {
     width: 10,
     height: 10,
-   marginHorizontal: 3,
+    marginHorizontal: 3,
     backgroundColor: COLORS.gray,
     borderRadius: 5,
   },
@@ -113,24 +120,21 @@ const styles = StyleSheet.create({
     height: 10,
     backgroundColor: COLORS.primary,
     borderRadius: 5,
-     marginHorizontal: 3,
+    marginHorizontal: 3,
   },
   slide: {
     flex: 1,
     alignItems: "center",
-   gap: 50
-    
-   
+    justifyContent: "center", // ← FIXED: centers content vertically
+    gap: 30, // ← FIXED: reduced from 50 to 30
   },
   image: {
-   
+    width: "100%", // ← FIXED: added width so image shows properly
     height: 300,
   },
   titleContainer: {
-    
-  gap: 20,
+    gap: 20,
     width: "80%",
-    
   },
   title: {
     fontSize: 28,
@@ -144,17 +148,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontWeight: "500",
   },
-  buttonContainer:{
-      width: "100%",
+  buttonContainer: {
+    width: "100%",
     marginBottom: 20,
     alignItems: "center",
     justifyContent: "center",
   },
   button: {
     width: "92%",
-  
-    
-  
-    
   },
 });
