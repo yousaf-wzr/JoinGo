@@ -1,9 +1,12 @@
-// app/profileInfo.tsx
+// app/(customer)/profileInfo.tsx
+import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
 import { FontAwesome } from "@expo/vector-icons";
-import React, { useState } from "react";
+import * as ImagePicker from "expo-image-picker"; // ← NEW: real image picker
+import React, { useEffect, useState } from "react";
 import {
+  Alert,
   Image,
   Modal,
   SafeAreaView,
@@ -12,51 +15,118 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 
 export default function ProfileInfo() {
   const [profile, setProfile] = useState({
-    full_name: "John Doe",
-    email: "johndoe@example.com",
-    avatar_url:
-      "https://www.gravatar.com/avatar/00000000000000000000000000000000?s=250",
+    full_name: "",
+    email: "",
+    avatar_url: "https://www.gravatar.com/avatar/?d=mp&s=250",
   });
 
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const [tempName, setTempName] = useState(profile.full_name);
-  const [tempEmail, setTempEmail] = useState(profile.email);
+  const [tempName, setTempName] = useState("");
+  const [tempEmail, setTempEmail] = useState("");
+  const [userId, setUserId] = useState("");
 
-  const saveChanges = () => {
-    setProfile({ ...profile, full_name: tempName, email: tempEmail });
+  // Fetch real profile from Supabase on load
+  useEffect(() => {
+    const fetchProfile = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      setUserId(user.id);
+
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", user.id)
+        .single();
+
+      setProfile({
+        full_name: data?.full_name || "",
+        email: user.email || "",
+        avatar_url: `https://www.gravatar.com/avatar/${user.email}?s=250&d=mp`,
+      });
+
+      setTempName(data?.full_name || "");
+      setTempEmail(user.email || "");
+    };
+
+    fetchProfile();
+  }, []);
+
+  // Save changes to Supabase
+  const saveChanges = async () => {
+    if (!tempName) {
+      Alert.alert("Error", "Name cannot be empty.");
+      return;
+    }
+
+    // Update the profiles table with new name
+    const { error } = await supabase
+      .from("profiles")
+      .update({ full_name: tempName })
+      .eq("id", userId);
+
+    if (error) {
+      Alert.alert("Error", "Could not save changes.");
+      return;
+    }
+
+    // Update local state so screen refreshes immediately
+    setProfile({ ...profile, full_name: tempName });
     setEditModalVisible(false);
+    Alert.alert("Success", "Profile updated!");
   };
 
-  const changeProfileImage = () => {
-    // TODO: Open image picker logic here
-    alert("Change profile image clicked!");
+  // Real image picker
+  const changeProfileImage = async () => {
+    // Ask permission to access photos
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Please allow access to your photos.");
+      return;
+    }
+
+    // Open photo library
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1], // square crop
+      quality: 0.5,
+    });
+
+    if (!result.canceled) {
+      // For now just update UI — full upload to Supabase Storage can be added later
+      setProfile({ ...profile, avatar_url: result.assets[0].uri });
+    }
   };
 
   return (
     <SafeAreaView style={styles.container}>
- 
       <ScrollView contentContainerStyle={styles.content}>
-        {/* Avatar with Pencil Button */}
+        {/* Avatar */}
         <View style={styles.avatarContainer}>
           <Image source={{ uri: profile.avatar_url }} style={styles.avatar} />
-          <TouchableOpacity style={styles.editImageBtn} onPress={changeProfileImage}>
+          <TouchableOpacity
+            style={styles.editImageBtn}
+            onPress={changeProfileImage}
+          >
             <FontAwesome name="pencil" size={16} color={COLORS.white} />
           </TouchableOpacity>
         </View>
 
         {/* Name & Email */}
-        <Text style={styles.name}>{profile.full_name}</Text>
+        <Text style={styles.name}>{profile.full_name || "Loading..."}</Text>
         <Text style={styles.email}>{profile.email}</Text>
 
-        {/* Divider */}
         <View style={styles.divider} />
 
-        {/* Edit Profile Button */}
+        {/* Edit Button */}
         <TouchableOpacity
           style={styles.button}
           onPress={() => setEditModalVisible(true)}
@@ -75,7 +145,6 @@ export default function ProfileInfo() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <Text style={styles.modalTitle}>Edit Profile</Text>
-
             <TextInput
               value={tempName}
               onChangeText={setTempName}
@@ -84,12 +153,11 @@ export default function ProfileInfo() {
             />
             <TextInput
               value={tempEmail}
-              onChangeText={setTempEmail}
               placeholder="Email"
-              style={styles.input}
-              keyboardType="email-address"
+              style={[styles.input, { color: COLORS.gray }]}
+              editable={false} // email can't be changed easily in Supabase auth
             />
-
+            <Text style={styles.hint}>* Email cannot be changed here</Text>
             <View style={styles.modalButtons}>
               <TouchableOpacity style={styles.button} onPress={saveChanges}>
                 <Text style={styles.buttonText}>Save</Text>
@@ -117,13 +185,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 40,
   },
-  content: {
-    alignItems: "center",
-    paddingBottom: 40,
-  },
-  avatarContainer: {
-    position: "relative",
-  },
+  content: { alignItems: "center", paddingBottom: 40 },
+  avatarContainer: { position: "relative" },
   avatar: {
     width: 120,
     height: 120,
@@ -167,19 +230,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     minWidth: 120,
   },
-  buttonText: {
-    fontSize: 16,
-    fontFamily: FONTS.bold,
-    color: COLORS.white,
-  },
+  buttonText: { fontSize: 16, fontFamily: FONTS.bold, color: COLORS.white },
   secondaryButton: {
     backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.primary,
   },
-  secondaryText: {
-    color: COLORS.primary,
-  },
+  secondaryText: { color: COLORS.primary },
+  hint: { fontSize: 12, color: COLORS.gray, marginBottom: 10 },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.4)",

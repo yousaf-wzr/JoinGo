@@ -1,8 +1,10 @@
+import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
 import { router } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
+  Alert,
   Image,
   SafeAreaView,
   ScrollView,
@@ -10,22 +12,72 @@ import {
   Switch,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 
 export default function ProfileScreen() {
   const [isDriver, setIsDriver] = useState(false);
+  const [username, setUsername] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
 
-  const profileInfo = () => {
-    router.replace("/profileInfo");
+  // Fetch real user data on screen load
+  useEffect(() => {
+    const fetchProfile = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", user.id)
+        .single();
+
+      if (profile) setUsername(profile.full_name);
+      // Use Gravatar with real email as fallback avatar
+      setAvatarUrl(`https://www.gravatar.com/avatar/${user.email}?s=250&d=mp`);
+    };
+
+    fetchProfile();
+  }, []);
+
+  // Handle logout
+  const handleLogout = async () => {
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          await supabase.auth.signOut(); // clear the session
+          router.replace("/(role)"); // go back to role screen
+        },
+      },
+    ]);
   };
 
-  // Navigate to driver screen when toggled ON
-  useEffect(() => {
-    if (isDriver) {
-      router.replace("/driver");
+  // Driver mode toggle — ask confirmation before switching
+  const handleDriverToggle = (value: boolean) => {
+    if (value) {
+      Alert.alert(
+        "Switch to Driver Mode?",
+        "You will be taken to the driver section.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Switch",
+            onPress: () => {
+              setIsDriver(true);
+              router.replace("/(driver)/driverHome"); // ← FIXED: correct route
+            },
+          },
+        ],
+      );
+    } else {
+      setIsDriver(false);
     }
-  }, [isDriver]);
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -35,21 +87,23 @@ export default function ProfileScreen() {
           <View style={styles.circleImageWrapper}>
             <Image
               source={{
-                uri: "https://www.gravatar.com/avatar/00000000000000000000000000000000?s=250",
+                uri: avatarUrl || "https://www.gravatar.com/avatar/?d=mp&s=250",
               }}
               style={styles.circleImage}
             />
           </View>
-          <Text style={styles.profileName}>John Doe</Text>
+          <Text style={styles.profileName}>{username || "Loading..."}</Text>
         </View>
 
         {/* Info Section */}
         <TouchableOpacity
           style={styles.section}
-          onPress={profileInfo}
+          onPress={() => router.push("/profileInfo")}
         >
           <Text style={styles.sectionTitle}>Information</Text>
-          <Text style={styles.sectionItem}>View your account details</Text>
+          <Text style={styles.sectionItem}>
+            View and edit your account details
+          </Text>
         </TouchableOpacity>
 
         {/* Terms & Conditions */}
@@ -62,7 +116,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Support Section */}
+        {/* Support */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Support</Text>
           <TouchableOpacity style={styles.sectionButton}>
@@ -75,14 +129,14 @@ export default function ProfileScreen() {
           <Text style={styles.switchText}>Driver Mode</Text>
           <Switch
             value={isDriver}
-            onValueChange={(value) => setIsDriver(value)}
+            onValueChange={handleDriverToggle}
             trackColor={{ false: "#ccc", true: COLORS.primary }}
             thumbColor={isDriver ? COLORS.white : "#f4f3f4"}
           />
         </View>
 
         {/* Logout */}
-        <TouchableOpacity style={styles.logoutButton}>
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -90,24 +144,24 @@ export default function ProfileScreen() {
   );
 }
 
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.white, padding: 20 },
   header: { alignItems: "center", marginVertical: 20 },
   circleImageWrapper: {
     width: 120,
     height: 120,
-    borderRadius: 60, // half of width/height to make it a perfect circle
-    overflow: "hidden", // ensures image stays inside the circle
+    borderRadius: 60,
+    overflow: "hidden",
     borderWidth: 3,
     borderColor: COLORS.primary,
   },
-  circleImage: {
-    width: "100%",
-    height: "100%",
-    resizeMode: "cover",
+  circleImage: { width: "100%", height: "100%", resizeMode: "cover" },
+  profileName: {
+    fontSize: 20,
+    fontFamily: FONTS.bold,
+    color: COLORS.primary,
+    marginTop: 10,
   },
-  profileName: { fontSize: 20, fontFamily: FONTS.bold, color: COLORS.primary, marginTop: 10 },
   section: {
     marginVertical: 10,
     padding: 15,
