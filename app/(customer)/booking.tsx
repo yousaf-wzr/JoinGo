@@ -1,6 +1,7 @@
 // app/(customer)/booking.tsx
-import { supabase } from "@/config/supabaseConfig"; // ← NEW
+import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
+import FONTS from "@/constants/fonts";
 import {
   faCarSide,
   faCommentDots,
@@ -18,13 +19,13 @@ import {
   Image,
   Linking,
   Modal,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 const haversine = (
   a: { latitude: number; longitude: number },
@@ -34,11 +35,11 @@ const haversine = (
   const R = 6371;
   const dLat = toRad(b.latitude - a.latitude);
   const dLon = toRad(b.longitude - a.longitude);
-  const lat1 = toRad(a.latitude);
-  const lat2 = toRad(b.latitude);
   const s =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+    Math.cos(toRad(a.latitude)) *
+      Math.cos(toRad(b.latitude)) *
+      Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(s));
 };
 
@@ -50,7 +51,7 @@ export default function BookingScreen() {
   const vehicleIcon = useMemo(() => {
     const t = (data?.vehicle?.type || "").toLowerCase();
     if (t.includes("motor")) return faMotorcycle;
-    if (t.includes("van") || t.includes("pickup")) return faTruckPickup;
+    if (t.includes("van")) return faTruckPickup;
     return faCarSide;
   }, [data?.vehicle?.type]);
 
@@ -64,16 +65,13 @@ export default function BookingScreen() {
   });
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [etaMinutes, setEtaMinutes] = useState(0);
-  const [bookingStatus, setBookingStatus] = useState("pending"); // ← NEW: track status
-
+  const [bookingStatus, setBookingStatus] = useState("pending");
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const mapRef = useRef<MapView>(null);
 
-  // ← NEW: listen for booking status changes in realtime
-  // When driver accepts → customer sees "Driver accepted!" instantly
+  // Realtime booking status listener
   useEffect(() => {
     if (!data.id) return;
-
     const channel = supabase
       .channel("booking-status")
       .on(
@@ -87,23 +85,21 @@ export default function BookingScreen() {
         (payload) => {
           const newStatus = payload.new.status;
           setBookingStatus(newStatus);
-
-          if (newStatus === "accepted") {
+          if (newStatus === "accepted")
             Alert.alert("Driver Accepted! 🎉", "Your driver is on the way.");
-          } else if (newStatus === "completed") {
+          else if (newStatus === "completed") {
             Alert.alert("Trip Completed", "Hope you had a great ride!");
             router.replace("/(customer)");
           }
         },
       )
       .subscribe();
-
     return () => {
       supabase.removeChannel(channel);
     };
   }, [data.id]);
 
-  // Smooth driver movement toward passenger
+  // Smooth driver movement
   useEffect(() => {
     const interval = setInterval(() => {
       setDriverLocation((prev) => ({
@@ -115,15 +111,17 @@ export default function BookingScreen() {
       }));
     }, 1500);
     return () => clearInterval(interval);
-  }, [passengerLocation]);
+  }, []);
 
-  // Calculate ETA
   useEffect(() => {
-    const distanceKm = haversine(driverLocation, passengerLocation);
-    setEtaMinutes(Math.max(1, Math.round((distanceKm / 25) * 60)));
+    setEtaMinutes(
+      Math.max(
+        1,
+        Math.round((haversine(driverLocation, passengerLocation) / 25) * 60),
+      ),
+    );
   }, [driverLocation]);
 
-  // Pulse animation
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -143,92 +141,54 @@ export default function BookingScreen() {
     ).start();
   }, []);
 
-  const pulseScale = pulseAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.5],
-  });
-  const pulseOpacity = pulseAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.5, 0],
-  });
-
-  // Fit both markers on map
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const t = setTimeout(() => {
       mapRef.current?.fitToCoordinates([driverLocation, passengerLocation], {
-        edgePadding: { top: 120, bottom: 250, left: 60, right: 60 },
+        edgePadding: { top: 60, bottom: 60, left: 60, right: 60 },
         animated: true,
       });
     }, 400);
-    return () => clearTimeout(timer);
-  }, [driverLocation, passengerLocation]);
+    return () => clearTimeout(t);
+  }, [driverLocation]);
 
-  const phone = data?.phone || "03001234567";
-
-  const onCall = async () => {
-    try {
-      const url = `tel:${phone}`;
-      const supported = await Linking.canOpenURL(url);
-      if (supported) await Linking.openURL(url);
-      else Alert.alert("Error", "Phone call not supported on this device");
-    } catch (err) {
-      console.log(err);
-    }
-  };
-
-  const onChat = () => {
-    router.push(`/chat?booking=${encodeURIComponent(JSON.stringify(data))}`);
-  };
-
-  // ← CHANGED: now updates status in Supabase to "cancelled"
   const cancelBooking = async () => {
     setShowCancelModal(false);
-
-    if (data.id) {
+    if (data.id)
       await supabase
         .from("bookings")
         .update({ status: "cancelled" })
         .eq("id", data.id);
-    }
-
     router.replace("/(customer)");
   };
 
-  const routeCoords = [driverLocation, passengerLocation];
+  const onCall = async () => {
+    const url = `tel:${data?.phone || "03001234567"}`;
+    const supported = await Linking.canOpenURL(url);
+    if (supported) await Linking.openURL(url);
+    else Alert.alert("Error", "Phone calls not supported on this device");
+  };
+
+  const statusColor =
+    bookingStatus === "accepted"
+      ? "#16a34a"
+      : bookingStatus === "cancelled"
+        ? "#dc2626"
+        : COLORS.primary;
+  const statusLabel =
+    bookingStatus === "accepted"
+      ? "✅ Driver is on the way!"
+      : bookingStatus === "cancelled"
+        ? "❌ Booking Cancelled"
+        : "⏳ Waiting for driver to accept...";
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Status banner */}
-      {bookingStatus === "pending" && (
-        <View style={styles.statusBanner}>
-          <Text style={styles.statusText}>
-            ⏳ Waiting for driver to accept...
-          </Text>
-        </View>
-      )}
-      {bookingStatus === "accepted" && (
-        <View style={[styles.statusBanner, { backgroundColor: "green" }]}>
-          <Text style={styles.statusText}>✅ Driver is on the way!</Text>
-        </View>
-      )}
-
-      {/* Driver Header */}
-      <View style={styles.header}>
-        <Image source={{ uri: data.image }} style={styles.driverImage} />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.driverName}>{data?.driverName || "Driver"}</Text>
-          <Text style={styles.driverRating}>
-            ⭐ {data?.rating || 5} / 5 · On the way
-          </Text>
-          <Text style={styles.vehicle}>
-            {(data?.vehicle?.color || "").trim()}{" "}
-            {(data?.vehicle?.type || "Car").trim()} •{" "}
-            {data?.vehicle?.plate || "N/A"}
-          </Text>
-        </View>
+    <SafeAreaView style={styles.container} edges={["top"]}>
+      {/* ── Status Banner ── */}
+      <View style={[styles.statusBanner, { backgroundColor: statusColor }]}>
+        <Text style={styles.statusText}>{statusLabel}</Text>
       </View>
 
-      {/* Map */}
+      {/* ── Map ── */}
       <View style={styles.mapContainer}>
         <MapView
           ref={mapRef}
@@ -246,72 +206,107 @@ export default function BookingScreen() {
             pinColor={COLORS.primary}
           />
           <Marker coordinate={driverLocation} title="Driver">
-            <FontAwesomeIcon
-              icon={vehicleIcon}
-              size={24}
-              color={COLORS.primary}
-            />
+            <View style={styles.driverMarker}>
+              <FontAwesomeIcon
+                icon={vehicleIcon}
+                size={18}
+                color={COLORS.white}
+              />
+            </View>
           </Marker>
           <Polyline
-            coordinates={routeCoords}
-            strokeWidth={4}
+            coordinates={[driverLocation, passengerLocation]}
+            strokeWidth={3}
             strokeColor={COLORS.primary}
           />
         </MapView>
       </View>
 
-      {/* Bottom Sheet */}
-      <View style={styles.bottomSheet}>
-        <View style={styles.rowBetween}>
-          <Text style={styles.eta}>ETA: {etaMinutes} min</Text>
-          <Text style={styles.price}>₨{data.price ?? "—"}</Text>
+      {/* ── Bottom Card ── */}
+      <View style={styles.card}>
+        {/* Driver info row */}
+        <View style={styles.driverRow}>
+          <Image
+            source={{
+              uri: data.image || "https://www.gravatar.com/avatar/?d=mp&s=100",
+            }}
+            style={styles.driverImage}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.driverName}>
+              {data?.driverName || "Driver"}
+            </Text>
+            <Text style={styles.driverSub}>
+              ⭐ {data?.rating || "5.0"} · {data?.vehicle?.color || ""}{" "}
+              {data?.vehicle?.type || "Car"} · {data?.vehicle?.plate || "N/A"}
+            </Text>
+          </View>
+          <View style={styles.etaBadge}>
+            <Text style={styles.etaNum}>{etaMinutes}</Text>
+            <Text style={styles.etaLabel}>min</Text>
+          </View>
         </View>
+
+        {/* Price row */}
+        <View style={styles.priceRow}>
+          <Text style={styles.priceLabel}>Estimated Fare</Text>
+          <Text style={styles.priceValue}>₨ {data.price ?? "—"}</Text>
+        </View>
+
+        {/* Action buttons */}
         <View style={styles.actionsRow}>
-          <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: COLORS.primary }]}
-            onPress={onCall}
-          >
-            <FontAwesomeIcon icon={faPhone} color={COLORS.white} />
+          <TouchableOpacity style={styles.actionBtn} onPress={onCall}>
+            <FontAwesomeIcon icon={faPhone} size={18} color={COLORS.white} />
             <Text style={styles.actionText}>Call</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.actionBtn, { backgroundColor: COLORS.primary }]}
-            onPress={onChat}
+            style={styles.actionBtn}
+            onPress={() =>
+              router.push(
+                `/chat?booking=${encodeURIComponent(JSON.stringify(data))}`,
+              )
+            }
           >
-            <FontAwesomeIcon icon={faCommentDots} color={COLORS.white} />
+            <FontAwesomeIcon
+              icon={faCommentDots}
+              size={18}
+              color={COLORS.white}
+            />
             <Text style={styles.actionText}>Chat</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: "#dc2626" }]}
+            onPress={() => setShowCancelModal(true)}
+          >
+            <Text style={styles.actionText}>Cancel</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Cancel Button */}
-      <TouchableOpacity
-        style={styles.cancelButton}
-        onPress={() => setShowCancelModal(true)}
-      >
-        <Text style={styles.cancelText}>Cancel Booking</Text>
-      </TouchableOpacity>
-
       {/* Cancel Modal */}
       <Modal visible={showCancelModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Cancel Booking</Text>
-            <Text style={styles.modalMessage}>
-              Are you sure you want to cancel?
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Cancel Booking?</Text>
+            <Text style={styles.modalMsg}>
+              Are you sure you want to cancel this ride?
             </Text>
-            <View style={styles.modalActions}>
+            <View style={styles.modalBtns}>
               <TouchableOpacity
                 style={[styles.modalBtn, { backgroundColor: COLORS.lightGray }]}
                 onPress={() => setShowCancelModal(false)}
               >
-                <Text style={{ color: COLORS.black }}>No</Text>
+                <Text style={{ color: COLORS.black, fontWeight: "600" }}>
+                  No
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalBtn, { backgroundColor: COLORS.primary }]}
+                style={[styles.modalBtn, { backgroundColor: "#dc2626" }]}
                 onPress={cancelBooking}
               >
-                <Text style={{ color: COLORS.white }}>Yes, Cancel</Text>
+                <Text style={{ color: COLORS.white, fontWeight: "600" }}>
+                  Yes, Cancel
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -323,100 +318,115 @@ export default function BookingScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.white },
+
   statusBanner: {
-    backgroundColor: COLORS.primary,
-    padding: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     alignItems: "center",
   },
-  statusText: { color: COLORS.white, fontWeight: "600" },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 15,
-    backgroundColor: COLORS.lightGray,
-    margin: 10,
-    borderRadius: 12,
-  },
-  driverImage: { width: 60, height: 60, borderRadius: 30, marginRight: 12 },
-  driverName: { fontSize: 18, fontWeight: "bold", color: COLORS.black },
-  driverRating: { fontSize: 14, color: COLORS.gray, marginTop: 2 },
-  vehicle: { fontSize: 14, color: COLORS.gray, marginTop: 2 },
-  mapContainer: {
-    height: 420,
-    marginHorizontal: 10,
-    marginBottom: 15,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
+  statusText: { color: COLORS.white, fontWeight: "700", fontSize: 14 },
+
+  mapContainer: { flex: 1 },
   map: { flex: 1 },
-  bottomSheet: {
-    padding: 16,
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    elevation: 5,
-    marginHorizontal: 10,
-    marginBottom: 70,
-  },
-  rowBetween: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+
+  driverMarker: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
-  },
-  eta: { fontSize: 18, fontWeight: "bold", color: COLORS.black },
-  price: { fontSize: 16, color: COLORS.gray },
-  actionsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 12,
-  },
-  actionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    borderRadius: 8,
-    flex: 1,
     justifyContent: "center",
-    marginHorizontal: 4,
-    gap: 6,
+    borderWidth: 2,
+    borderColor: COLORS.white,
   },
-  actionText: { color: COLORS.white, fontWeight: "bold" },
-  cancelButton: {
-    position: "absolute",
-    bottom: 10,
-    left: 10,
-    right: 10,
-    backgroundColor: "red",
-    paddingVertical: 14,
+
+  card: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: 30,
+    elevation: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+  },
+
+  driverRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+  driverImage: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    marginRight: 12,
+    borderWidth: 2,
+    borderColor: COLORS.primary,
+  },
+  driverName: { fontSize: 16, fontWeight: "700", color: COLORS.black },
+  driverSub: { fontSize: 12, color: COLORS.gray, marginTop: 3 },
+  etaBadge: {
     alignItems: "center",
+    backgroundColor: COLORS.lightGray,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  etaNum: { fontSize: 20, fontWeight: "700", color: COLORS.primary },
+  etaLabel: { fontSize: 11, color: COLORS.gray },
+
+  priceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: COLORS.lightGray,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+  priceLabel: { fontSize: 14, color: COLORS.gray, fontFamily: FONTS.medium },
+  priceValue: { fontSize: 18, fontWeight: "700", color: COLORS.primary },
+
+  actionsRow: { flexDirection: "row", gap: 10 },
+  actionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 13,
     borderRadius: 12,
   },
-  cancelText: { color: COLORS.white, fontSize: 16, fontWeight: "bold" },
+  actionText: { color: COLORS.white, fontWeight: "700", fontSize: 14 },
+
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
+    backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "center",
     alignItems: "center",
   },
-  modalContainer: {
+  modalBox: {
     backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 20,
-    width: "80%",
+    borderRadius: 16,
+    padding: 24,
+    width: "82%",
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 10,
+    fontWeight: "700",
     textAlign: "center",
+    marginBottom: 8,
   },
-  modalMessage: { fontSize: 16, marginBottom: 20, textAlign: "center" },
-  modalActions: { flexDirection: "row", justifyContent: "space-around" },
+  modalMsg: {
+    fontSize: 14,
+    color: COLORS.gray,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  modalBtns: { flexDirection: "row", gap: 10 },
   modalBtn: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 8,
+    paddingVertical: 13,
+    borderRadius: 10,
     alignItems: "center",
-    marginHorizontal: 5,
   },
 });
