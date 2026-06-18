@@ -1,24 +1,54 @@
 import COLORS from "@/constants/color";
-import { faCarSide, faMotorcycle, faTruckPickup } from "@fortawesome/free-solid-svg-icons";
+import {
+  faCarSide,
+  faMotorcycle,
+  faTruckPickup,
+} from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
 import { useRouter } from "expo-router";
 import React from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 // Vehicle Icon Component
-export const VehicleIcon = ({ type, size = 24 }: { type: string; size?: number }) => {
+export const VehicleIcon = ({
+  type,
+  size = 24,
+}: {
+  type: string;
+  size?: number;
+}) => {
   switch (type) {
     case "Motorcycle":
-      return <FontAwesomeIcon icon={faMotorcycle} size={size} color={COLORS.primary} />;
+      return (
+        <FontAwesomeIcon
+          icon={faMotorcycle}
+          size={size}
+          color={COLORS.primary}
+        />
+      );
     case "Van":
-      return <FontAwesomeIcon icon={faTruckPickup} size={size} color={COLORS.primary} />;
+      return (
+        <FontAwesomeIcon
+          icon={faTruckPickup}
+          size={size}
+          color={COLORS.primary}
+        />
+      );
     default:
-      return <FontAwesomeIcon icon={faCarSide} size={size} color={COLORS.primary} />;
+      return (
+        <FontAwesomeIcon icon={faCarSide} size={size} color={COLORS.primary} />
+      );
   }
 };
 
 // Offer Card Component
-export default function OfferCard({ item }: { item: any }) {
+export default function OfferCard({
+  item,
+  onPressBook,
+}: {
+  item: any;
+  onPressBook?: () => void;
+}) {
   const router = useRouter();
 
   return (
@@ -58,10 +88,12 @@ export default function OfferCard({ item }: { item: any }) {
       <TouchableOpacity
         style={styles.bookButton}
         onPress={() =>
-          router.push({
-            pathname: "/booking",
-            params: { booking: JSON.stringify(item) },
-          })
+          onPressBook
+            ? onPressBook()
+            : router.push({
+                pathname: "/booking",
+                params: { booking: JSON.stringify(item) },
+              })
         }
       >
         <Text style={styles.bookText}>Book</Text>
