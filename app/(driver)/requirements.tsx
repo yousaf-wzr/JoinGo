@@ -1,5 +1,6 @@
 import Button from "@/components/button";
 import InputField from "@/components/text-Input";
+import { supabase } from "@/config/supabaseConfig"; // ← NEW
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
 import { useRouter } from "expo-router";
@@ -21,10 +22,12 @@ export default function DriverRequirementsScreen() {
   const router = useRouter();
   const [carModel, setCarModel] = useState("");
   const [licenseNumber, setLicenseNumber] = useState("");
-  const [mode, setMode] = useState(""); // car | motorcycle | van
-
+  const [mode, setMode] = useState("");
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [modalType, setModalType] = useState("confirmation"); // 'confirmation' | 'error'
+  const [modalType, setModalType] = useState<
+    "confirmation" | "error" | "success"
+  >("confirmation");
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = () => {
     if (!carModel || !licenseNumber || !mode) {
@@ -36,10 +39,60 @@ export default function DriverRequirementsScreen() {
     setShowConfirmModal(true);
   };
 
-  const confirmContinue = () => {
-    setShowConfirmModal(false);
-    router.push("/(driver)/driverHome");
+  // ← CHANGED: now saves to Supabase and shows pending message
+  const confirmContinue = async () => {
+    setLoading(true);
+
+    // Get the logged in driver
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Save vehicle info + keep status as "pending" (needs admin approval)
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        car_model: carModel,
+        license_number: licenseNumber,
+        vehicle_type: mode,
+        status: "pending", // driver can't drive until approved
+      })
+      .eq("id", user.id);
+
+    setLoading(false);
+
+    if (error) {
+      setModalType("error");
+      return;
+    }
+
+    // Show success/pending message instead of going to driverHome
+    setModalType("success");
   };
+
+  const getModalContent = () => {
+    if (modalType === "error")
+      return {
+        title: "Missing Information",
+        message: "Please fill all fields before continuing.",
+        showConfirm: false,
+      };
+    if (modalType === "success")
+      return {
+        title: "Application Submitted! 🎉",
+        message:
+          "Your details have been saved. Your account is under review. You'll be able to start driving once approved by our team.",
+        showConfirm: false,
+      };
+    return {
+      title: "Confirm Details",
+      message: "Are you sure you want to proceed with the entered details?",
+      showConfirm: true,
+    };
+  };
+
+  const modal = getModalContent();
 
   return (
     <KeyboardAvoidingView
@@ -53,7 +106,6 @@ export default function DriverRequirementsScreen() {
             Please provide your vehicle and license information to proceed.
           </Text>
 
-          {/* Car Model */}
           <InputField
             placeholder="Car Model (e.g., Toyota Corolla)"
             value={carModel}
@@ -61,7 +113,6 @@ export default function DriverRequirementsScreen() {
             icon="truck"
           />
 
-          {/* License Number */}
           <InputField
             placeholder="License Number"
             value={licenseNumber}
@@ -69,7 +120,6 @@ export default function DriverRequirementsScreen() {
             icon="file-text"
           />
 
-          {/* Vehicle Mode Selection */}
           <Text style={styles.sectionTitle}>Vehicle Type</Text>
           <View style={styles.modeContainer}>
             {["Car", "Motorcycle", "Van"].map((type) => (
@@ -93,38 +143,40 @@ export default function DriverRequirementsScreen() {
             ))}
           </View>
 
-          {/* Continue Button */}
-          <Button style={styles.button} onPress={handleSubmit} label="Continue" />
+          <Button
+            style={styles.button}
+            onPress={handleSubmit}
+            label={loading ? "Saving..." : "Continue"}
+            disabled={loading}
+          />
 
-          {/* Modal */}
           <Modal visible={showConfirmModal} transparent animationType="fade">
             <View style={styles.modalOverlay}>
               <View style={styles.modalContainer}>
-                <Text style={styles.modalTitle}>
-                  {modalType === "error" ? "Missing Information" : "Confirm Details"}
-                </Text>
-                <Text style={styles.modalMessage}>
-                  {modalType === "error"
-                    ? "Please fill all fields before continuing."
-                    : "Are you sure you want to proceed with the entered details?"}
-                </Text>
+                <Text style={styles.modalTitle}>{modal.title}</Text>
+                <Text style={styles.modalMessage}>{modal.message}</Text>
 
                 <View style={styles.modalActions}>
-                  {/* Close Button */}
                   <TouchableOpacity
                     style={styles.modalBtn}
-                    onPress={() => setShowConfirmModal(false)}
+                    onPress={() => {
+                      setShowConfirmModal(false);
+                      // After success, go back to role screen to login
+                      if (modalType === "success")
+                        router.replace("/(auth)/login");
+                    }}
                   >
-                    <Text style={{ color: COLORS.white }}>Close</Text>
+                    <Text style={{ color: COLORS.white }}>
+                      {modalType === "success" ? "Go to Login" : "Close"}
+                    </Text>
                   </TouchableOpacity>
 
-                  {/* Continue Button (only for confirmation) */}
-                  {modalType === "confirmation" && (
+                  {modal.showConfirm && (
                     <TouchableOpacity
                       style={styles.modalBtn}
                       onPress={confirmContinue}
                     >
-                      <Text style={{ color: COLORS.white }}>Continue</Text>
+                      <Text style={{ color: COLORS.white }}>Confirm</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -163,11 +215,7 @@ const styles = StyleSheet.create({
     marginVertical: 16,
     color: COLORS.black,
   },
-  modeContainer: {
-    flexDirection: "row",
-    marginTop: 6,
-    gap: 8,
-  },
+  modeContainer: { flexDirection: "row", marginTop: 6, gap: 8 },
   modeButton: {
     flex: 1,
     paddingVertical: 10,
@@ -176,13 +224,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
   },
-  modeButtonSelected: {
-    backgroundColor: COLORS.primary,
-  },
-  modeText: {
-    fontSize: 14,
-    color: COLORS.gray,
-  },
+  modeButtonSelected: { backgroundColor: COLORS.primary },
+  modeText: { fontSize: 14, color: COLORS.gray },
   modeTextSelected: {
     color: COLORS.white,
     fontSize: FONTS.size.medium,
@@ -195,7 +238,6 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     elevation: 2,
   },
-  // Modal styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.4)",
@@ -218,11 +260,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 20,
     textAlign: "center",
+    lineHeight: 22,
   },
-  modalActions: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-  },
+  modalActions: { flexDirection: "row", justifyContent: "space-around" },
   modalBtn: {
     flex: 1,
     paddingVertical: 12,
