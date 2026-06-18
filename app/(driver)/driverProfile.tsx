@@ -1,21 +1,63 @@
-// screens/driver/DriverProfileScreen.tsx
+// app/(driver)/driverProfile.tsx
+import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
 import { router } from "expo-router";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
-    Image,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 export default function DriverProfileScreen() {
-  const profileInfo = () => {
-    router.push("/driverProfileInfo"); // navigates to edit screen
+  const [username, setUsername] = useState("");
+  const [vehicleInfo, setVehicleInfo] = useState("");
+
+  // Fetch real driver profile from Supabase
+  useEffect(() => {
+    const fetchProfile = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("full_name, car_model, license_number")
+        .eq("id", user.id)
+        .single();
+
+      if (profile) {
+        setUsername(profile.full_name);
+        setVehicleInfo(
+          profile.car_model && profile.license_number
+            ? `${profile.car_model} • ${profile.license_number}`
+            : "No vehicle info yet",
+        );
+      }
+    };
+
+    fetchProfile();
+  }, []);
+
+  const handleLogout = async () => {
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          await supabase.auth.signOut();
+          router.replace("/(role)");
+        },
+      },
+    ]);
   };
 
   return (
@@ -25,18 +67,19 @@ export default function DriverProfileScreen() {
         <View style={styles.header}>
           <View style={styles.circleImageWrapper}>
             <Image
-              source={{
-                uri: "https://randomuser.me/api/portraits/men/45.jpg",
-              }}
+              source={{ uri: "https://www.gravatar.com/avatar/?d=mp&s=250" }}
               style={styles.circleImage}
             />
           </View>
-          <Text style={styles.profileName}>John Doe</Text>
-          <Text style={styles.vehicleInfo}>Toyota Corolla • ABC-123</Text>
+          <Text style={styles.profileName}>{username || "Loading..."}</Text>
+          <Text style={styles.vehicleInfo}>{vehicleInfo}</Text>
         </View>
 
         {/* Info Section */}
-        <TouchableOpacity style={styles.section} onPress={profileInfo}>
+        <TouchableOpacity
+          style={styles.section}
+          onPress={() => router.push("/driverProfileInfo")}
+        >
           <Text style={styles.sectionTitle}>Information</Text>
           <Text style={styles.sectionItem}>
             View and update your account & vehicle details
@@ -62,7 +105,7 @@ export default function DriverProfileScreen() {
         </View>
 
         {/* Logout */}
-        <TouchableOpacity style={styles.logoutButton}>
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </ScrollView>
@@ -81,11 +124,7 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: COLORS.primary,
   },
-  circleImage: {
-    width: "100%",
-    height: "100%",
-    resizeMode: "cover",
-  },
+  circleImage: { width: "100%", height: "100%", resizeMode: "cover" },
   profileName: {
     fontSize: 20,
     fontFamily: FONTS.bold,
