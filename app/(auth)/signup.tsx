@@ -57,12 +57,31 @@ const Signup = () => {
 
       // Step 4.5: Save the user's name, role, and status to our profiles table
       // drivers start as "pending" (need admin approval), customers are "approved" immediately
-      await supabase.from("profiles").insert({
-        id: data.user?.id, // link to the auth user we just created
-        full_name: fullName, // the name they typed in the form
-        role: role, // "driver" or "customer"
-        status: role === "driver" ? "pending" : "approved",
-      });
+      if (data.user) {
+        const { error: profileError } = await supabase.from("profiles").insert({
+          id: data.user.id,
+          full_name: fullName,
+          role: role,
+          status: role === "driver" ? "pending" : "approved",
+        });
+
+        if (profileError) {
+          console.log("Profile insert error:", profileError.message);
+          Alert.alert(
+            "Error",
+            "Account created but profile setup failed: " + profileError.message,
+          );
+          return;
+        }
+      } else {
+        // Email confirmation is ON — user needs to confirm email first
+        Alert.alert(
+          "Check Your Email",
+          "We sent a confirmation link to your email. Please confirm it then log in.",
+        );
+        router.replace("/(auth)/login");
+        return;
+      }
 
       // Step 5: If signup worked, go to the right screen based on role
       if (role === "driver") {
