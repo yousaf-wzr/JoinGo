@@ -1,5 +1,6 @@
+// app/(customer)/bookingProcess.tsx
 import OfferCard, { VehicleIcon } from "@/components/offerCard";
-import { supabase } from "@/config/supabaseConfig"; // ← NEW: to save booking to DB
+import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
@@ -14,15 +15,25 @@ import {
 } from "react-native";
 import MapView, { Circle, Marker } from "react-native-maps";
 
+// Haversine distance in km between 2 coordinates
+const distanceKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+  const toRad = (x: number) => (x * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
 export default function OffersScreen() {
   const router = useRouter();
-
-  // ← NEW: also grab pickup & dropoff address text from params
   const {
     pickupLat,
     pickupLng,
     price,
-    distanceKm,
+    distanceKm: tripDistance,
     vehicleType,
     pickup,
     dropoff,
@@ -30,12 +41,13 @@ export default function OffersScreen() {
 
   const [offers, setOffers] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(true);
+  const [bookingId, setBookingId] = useState<string | null>(null);
 
   const pickupPulse = useRef(new Animated.Value(0)).current;
   const mapRef = useRef<MapView>(null);
   const [pulseRadius, setPulseRadius] = useState(50);
 
-  // Pulse animation — makes the circle on the map grow and shrink
+  // Pulse animation
   useEffect(() => {
     const loop = () => {
       Animated.sequence([
@@ -56,65 +68,90 @@ export default function OffersScreen() {
   }, []);
 
   useEffect(() => {
-    const listenerId = pickupPulse.addListener(({ value }) => {
-      setPulseRadius(50 + value * 150);
-    });
+    const id = pickupPulse.addListener(({ value }) =>
+      setPulseRadius(50 + value * 150),
+    );
     return () => {
-      pickupPulse.removeListener(listenerId);
+      pickupPulse.removeListener(id);
     };
   }, []);
 
-  // Generate fake driver offers (still fake for now — real drivers come later)
+  // ← CHANGED: Find REAL nearby online drivers within 5km instead of generating fake ones
   useEffect(() => {
-    const generateOffers = () =>
-      Array.from({ length: 5 }).map((_, i) => {
-        const latOffset = (Math.random() - 0.5) * 0.01;
-        const lngOffset = (Math.random() - 0.5) * 0.01;
+    const findNearbyDrivers = async () => {
+      // Step 1: Get all drivers who are currently online
+      const { data: onlineDrivers } = await supabase
+        .from("driver_locations")
+        .select("driver_id, latitude, longitude");
 
-        const vehicleOptions = [
-          { type: "Motorcycle", color: "Red", plate: "ABC-123" },
-          { type: "Car", color: "White", plate: "XYZ-456" },
-          { type: "Van", color: "Black", plate: "JKL-789" },
-          { type: "Car", color: "Blue", plate: "LMN-321" },
-        ];
+      if (!onlineDrivers || onlineDrivers.length === 0) {
+        setOffers([]);
+        setIsSearching(false);
+        return;
+      }
 
-        const selectedVehicle =
-          vehicleOptions.find((v) => v.type === vehicleType) ||
-          vehicleOptions[0];
+      // Step 2: Filter to only drivers within 5km radius
+      const nearby = onlineDrivers.filter((d) => {
+        const dist = distanceKm(
+          Number(pickupLat),
+          Number(pickupLng),
+          d.latitude,
+          d.longitude,
+        );
+        return dist <= 5; // 5km radius
+      });
 
-        const variation = Math.random() * 0.2 - 0.1;
-        const driverPrice = Math.round(Number(price) * (1 + variation));
+      if (nearby.length === 0) {
+        setOffers([]);
+        setIsSearching(false);
+        return;
+      }
 
-        const distanceVariation = Math.random() * 0.1 - 0.05;
-        const driverDistance = (
-          Number(distanceKm) *
-          (1 + distanceVariation)
-        ).toFixed(1);
+      // Step 3: Get each nearby driver's profile info (name, vehicle, etc)
+      const driverIds = nearby.map((d) => d.driver_id);
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, full_name, car_model, vehicle_type, license_number")
+        .in("id", driverIds);
+
+      // Step 4: Combine location + profile data into one offer object per driver
+      const realOffers = nearby.map((loc) => {
+        const profile = profiles?.find((p) => p.id === loc.driver_id);
+        const dist = distanceKm(
+          Number(pickupLat),
+          Number(pickupLng),
+          loc.latitude,
+          loc.longitude,
+        );
 
         return {
-          id: i + 1,
-          driverName: `Driver ${i + 1}`,
-          image: `https://randomuser.me/api/portraits/men/${i + 10}.jpg`,
-          rating: (Math.random() * 2 + 3).toFixed(1),
-          price: driverPrice,
-          eta: Math.floor(Math.random() * 10) + 3,
-          distance: driverDistance,
-          latitude: Number(pickupLat) + latOffset,
-          longitude: Number(pickupLng) + lngOffset,
-          vehicle: selectedVehicle,
+          id: loc.driver_id,
+          driverId: loc.driver_id,
+          driverName: profile?.full_name || "Driver",
+          image: `https://www.gravatar.com/avatar/${loc.driver_id}?d=mp&s=100`,
+          rating: "4.8", // placeholder until rating system exists
+          price: Number(price), // same price for all real drivers (can negotiate after)
+          eta: Math.max(1, Math.round((dist / 30) * 60)), // estimate based on 30km/h avg speed
+          distance: dist.toFixed(1),
+          latitude: loc.latitude,
+          longitude: loc.longitude,
+          vehicle: {
+            type: profile?.vehicle_type || "Car",
+            color: "",
+            plate: profile?.license_number || "N/A",
+          },
         };
       });
 
-    setTimeout(() => {
-      const data = generateOffers();
-      setOffers(data);
+      setOffers(realOffers);
       setIsSearching(false);
 
+      // Fit map to show pickup + all driver markers
       if (mapRef.current) {
         mapRef.current.fitToCoordinates(
           [
             { latitude: Number(pickupLat), longitude: Number(pickupLng) },
-            ...data.map((o) => ({
+            ...realOffers.map((o) => ({
               latitude: o.latitude,
               longitude: o.longitude,
             })),
@@ -125,33 +162,45 @@ export default function OffersScreen() {
           },
         );
       }
-    }, 2000);
+    };
+
+    findNearbyDrivers();
   }, []);
 
-  // ← NEW: this runs when customer taps "Book" on a driver offer
+  // Save booking to Supabase when customer books a driver
   const handleBook = async (item: any) => {
-    // Step 1: Find out who is logged in
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Step 2: Save the booking to our "bookings" table in Supabase
-    // Think of this like filling out a form and submitting it to a database
-    await supabase.from("bookings").insert({
-      customer_id: user.id, // who is booking
-      pickup: pickup, // where to pick them up (address text)
-      dropoff: dropoff, // where to drop them off (address text)
-      price: item.price, // price the driver offered
-      vehicle_type: item.vehicle.type, // Car / Motorcycle / Van
-      status: "pending", // waiting for driver to accept
-    });
+    const { data: newBooking } = await supabase
+      .from("bookings")
+      .insert({
+        customer_id: user.id,
+        driver_id: item.driverId, // ← NEW: assign the specific driver
+        pickup: pickup,
+        dropoff: dropoff,
+        price: item.price,
+        vehicle_type: item.vehicle.type,
+        status: "pending",
+      })
+      .select()
+      .single();
 
-    // Step 3: Go to the booking screen as before
-    router.push({
-      pathname: "/booking",
-      params: { booking: JSON.stringify(item) },
-    });
+    if (newBooking) {
+      setBookingId(newBooking.id);
+      router.push({
+        pathname: "/booking",
+        params: {
+          booking: JSON.stringify({
+            ...item,
+            id: newBooking.id,
+            bookingId: newBooking.id,
+          }),
+        },
+      });
+    }
   };
 
   return (
@@ -163,8 +212,8 @@ export default function OffersScreen() {
           initialRegion={{
             latitude: Number(pickupLat),
             longitude: Number(pickupLng),
-            latitudeDelta: 0.02,
-            longitudeDelta: 0.02,
+            latitudeDelta: 0.05,
+            longitudeDelta: 0.05,
           }}
         >
           <Circle
@@ -177,7 +226,6 @@ export default function OffersScreen() {
             strokeWidth={1}
             fillColor="transparent"
           />
-
           <Marker
             coordinate={{
               latitude: Number(pickupLat),
@@ -196,6 +244,7 @@ export default function OffersScreen() {
             />
           </Marker>
 
+          {/* Real driver markers */}
           {offers.map((driver) => (
             <Marker
               key={driver.id}
@@ -213,9 +262,6 @@ export default function OffersScreen() {
                     paddingHorizontal: 5,
                     paddingVertical: 2,
                     borderRadius: 4,
-                    shadowColor: "#000",
-                    shadowOpacity: 0.3,
-                    shadowRadius: 2,
                     elevation: 2,
                   }}
                 >
@@ -232,15 +278,17 @@ export default function OffersScreen() {
           <Text style={styles.searchingText}>
             Searching for nearby drivers...
           </Text>
+        ) : offers.length === 0 ? (
+          <Text style={styles.searchingText}>
+            No drivers online nearby right now.{"\n"}Please try again in a
+            moment.
+          </Text>
         ) : (
           <FlatList
             data={offers}
             keyExtractor={(item) => item.id.toString()}
             renderItem={({ item }) => (
-              <OfferCard
-                item={item}
-                onPressBook={() => handleBook(item)} // ← now calls handleBook instead
-              />
+              <OfferCard item={item} onPressBook={() => handleBook(item)} />
             )}
             contentContainerStyle={{ paddingBottom: 20 }}
           />
@@ -264,6 +312,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 16,
     color: COLORS.gray,
-    paddingVertical: 20,
+    paddingVertical: 30,
+    lineHeight: 24,
   },
 });
