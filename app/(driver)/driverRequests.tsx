@@ -18,13 +18,41 @@ import MapView, { Circle, Marker } from "react-native-maps";
 export default function DriverRequests() {
   const router = useRouter();
   const [requests, setRequests] = useState<any[]>([]);
-  const [driverLoc] = useState({ latitude: 37.78825, longitude: -122.4324 });
+  // ← CHANGED: starts null until we get the driver's real location
+  const [driverLoc, setDriverLoc] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
-  // Pulse animation for the circle on the map
   const pulse = useRef(new Animated.Value(0)).current;
   const [radius, setRadius] = useState(60);
 
-  // ← CHANGED: fetch real pending bookings from Supabase
+  // ← NEW: get the driver's real current location from driver_locations table
+  // (this is the same location driverHome.tsx is broadcasting while online)
+  useEffect(() => {
+    const fetchDriverLocation = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from("driver_locations")
+        .select("latitude, longitude")
+        .eq("driver_id", user.id)
+        .single();
+
+      if (data) {
+        setDriverLoc({ latitude: data.latitude, longitude: data.longitude });
+      } else {
+        // Fallback only if no location found yet (e.g. driver just went online)
+        setDriverLoc({ latitude: 37.78825, longitude: -122.4324 });
+      }
+    };
+
+    fetchDriverLocation();
+  }, []);
+
   useEffect(() => {
     const fetchRequests = async () => {
       const { data } = await supabase
@@ -38,15 +66,12 @@ export default function DriverRequests() {
 
     fetchRequests();
 
-    // ← NEW: realtime listener — when a new booking is created,
-    // it automatically appears in the driver's list without refreshing
     const channel = supabase
       .channel("pending-bookings")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "bookings" },
         (payload) => {
-          // Only add if it's a pending booking
           if (payload.new.status === "pending") {
             setRequests((prev) => [payload.new, ...prev]);
           }
@@ -54,13 +79,11 @@ export default function DriverRequests() {
       )
       .subscribe();
 
-    // Cleanup: stop listening when screen closes
     return () => {
       supabase.removeChannel(channel);
     };
   }, []);
 
-  // Pulse animation setup
   useEffect(() => {
     const loop = () => {
       Animated.sequence([
@@ -85,9 +108,17 @@ export default function DriverRequests() {
     return () => pulse.removeListener(id);
   }, []);
 
+  // Don't render the map until we know the driver's real location
+  if (!driverLoc) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={styles.emptyText}>Getting your location...</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      {/* Map — shows driver location only (no request pins since we store address text not coords) */}
       <View
         style={{
           height: 300,
@@ -113,11 +144,9 @@ export default function DriverRequests() {
             fillColor="transparent"
           />
           <Marker coordinate={driverLoc} title="You" />
-          {/* ← REMOVED: request markers since DB stores address text not coordinates */}
         </MapView>
       </View>
 
-      {/* Requests list */}
       <View style={styles.sheet}>
         <Text style={styles.title}>
           Nearby Requests{" "}
