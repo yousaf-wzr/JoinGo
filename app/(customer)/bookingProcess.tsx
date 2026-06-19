@@ -82,7 +82,8 @@ export default function OffersScreen() {
       // Step 1: Get all drivers who are currently online
       const { data: onlineDrivers } = await supabase
         .from("driver_locations")
-        .select("driver_id, latitude, longitude");
+        .select("driver_id, latitude, longitude")
+        .eq("is_online", true); // ← FIXED: was missing, pulled ALL rows including offline/stale ones
 
       if (!onlineDrivers || onlineDrivers.length === 0) {
         setOffers([]);
@@ -108,40 +109,45 @@ export default function OffersScreen() {
       }
 
       // Step 3: Get each nearby driver's profile info (name, vehicle, etc)
+      // Extra safety: only include people whose role is actually "driver"
       const driverIds = nearby.map((d) => d.driver_id);
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("id, full_name, car_model, vehicle_type, license_number")
-        .in("id", driverIds);
+        .select("id, full_name, car_model, vehicle_type, license_number, role")
+        .in("id", driverIds)
+        .eq("role", "driver"); // ← NEW: guards against stale/wrong rows
 
       // Step 4: Combine location + profile data into one offer object per driver
-      const realOffers = nearby.map((loc) => {
-        const profile = profiles?.find((p) => p.id === loc.driver_id);
-        const dist = distanceKm(
-          Number(pickupLat),
-          Number(pickupLng),
-          loc.latitude,
-          loc.longitude,
-        );
+      // Only include drivers who have a valid profile with role="driver"
+      const realOffers = nearby
+        .filter((loc) => profiles?.some((p) => p.id === loc.driver_id)) // ← NEW: drop any without a valid driver profile
+        .map((loc) => {
+          const profile = profiles?.find((p) => p.id === loc.driver_id);
+          const dist = distanceKm(
+            Number(pickupLat),
+            Number(pickupLng),
+            loc.latitude,
+            loc.longitude,
+          );
 
-        return {
-          id: loc.driver_id,
-          driverId: loc.driver_id,
-          driverName: profile?.full_name || "Driver",
-          image: `https://www.gravatar.com/avatar/${loc.driver_id}?d=mp&s=100`,
-          rating: "4.8", // placeholder until rating system exists
-          price: Number(price), // same price for all real drivers (can negotiate after)
-          eta: Math.max(1, Math.round((dist / 30) * 60)), // estimate based on 30km/h avg speed
-          distance: dist.toFixed(1),
-          latitude: loc.latitude,
-          longitude: loc.longitude,
-          vehicle: {
-            type: profile?.vehicle_type || "Car",
-            color: "",
-            plate: profile?.license_number || "N/A",
-          },
-        };
-      });
+          return {
+            id: loc.driver_id,
+            driverId: loc.driver_id,
+            driverName: profile?.full_name || "Driver",
+            image: `https://www.gravatar.com/avatar/${loc.driver_id}?d=mp&s=100`,
+            rating: "4.8", // placeholder until rating system exists
+            price: Number(price), // same price for all real drivers (can negotiate after)
+            eta: Math.max(1, Math.round((dist / 30) * 60)), // estimate based on 30km/h avg speed
+            distance: dist.toFixed(1),
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            vehicle: {
+              type: profile?.vehicle_type || "Car",
+              color: "",
+              plate: profile?.license_number || "N/A",
+            },
+          };
+        });
 
       setOffers(realOffers);
       setIsSearching(false);
