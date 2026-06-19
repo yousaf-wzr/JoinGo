@@ -20,6 +20,7 @@ export default function ChatScreen({ userRole = "customer" }) {
   const [userId, setUserId] = useState("");
   const [bookingId, setBookingId] = useState("");
   const flatListRef = useRef<FlatList>(null);
+  const channelRef = useRef<any>(null); // ← NEW: keep track of the active channel
 
   const quickReplies =
     userRole === "driver"
@@ -39,11 +40,13 @@ export default function ChatScreen({ userRole = "customer" }) {
         ];
 
   useEffect(() => {
+    let isMounted = true; // ← NEW: prevents setup running twice / after unmount
+
     const setup = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || !isMounted) return;
       setUserId(user.id);
 
       const column = userRole === "customer" ? "customer_id" : "driver_id";
@@ -56,7 +59,7 @@ export default function ChatScreen({ userRole = "customer" }) {
         .limit(1)
         .single();
 
-      if (booking) {
+      if (booking && isMounted) {
         setBookingId(booking.id);
         fetchMessages(booking.id);
         subscribeToMessages(booking.id);
@@ -64,6 +67,16 @@ export default function ChatScreen({ userRole = "customer" }) {
     };
 
     setup();
+
+    // ← NEW: cleanup runs when component unmounts (screen closes)
+    // This removes the OLD channel so a new one can be created safely
+    return () => {
+      isMounted = false;
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
+    };
   }, []);
 
   const fetchMessages = async (bId: string) => {
@@ -77,8 +90,10 @@ export default function ChatScreen({ userRole = "customer" }) {
   };
 
   const subscribeToMessages = (bId: string) => {
-    supabase
-      .channel("messages")
+    // ← FIXED: unique channel name per booking, not shared "messages" for everyone
+    // This stops the "cannot add postgres_changes after subscribe()" crash
+    const channel = supabase
+      .channel(`messages-${bId}`)
       .on(
         "postgres_changes",
         {
@@ -93,6 +108,8 @@ export default function ChatScreen({ userRole = "customer" }) {
         },
       )
       .subscribe();
+
+    channelRef.current = channel; // save reference so we can clean it up later
   };
 
   const sendMessage = async (text?: string) => {
@@ -108,7 +125,6 @@ export default function ChatScreen({ userRole = "customer" }) {
     setInput("");
   };
 
-  // ← FIXED: was ({ item }: { item: any }) {{ — double brace was a syntax error
   const renderMessage = ({ item }: { item: any }) => {
     const isMe = item.sender_id === userId;
     return (
