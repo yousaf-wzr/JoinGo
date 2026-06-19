@@ -22,7 +22,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -66,14 +66,16 @@ export default function BookingScreen() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [etaMinutes, setEtaMinutes] = useState(0);
   const [bookingStatus, setBookingStatus] = useState("pending");
+  const [currentPrice, setCurrentPrice] = useState(data.price); // ← NEW: track price (can change if counter accepted)
+  const [counterPrice, setCounterPrice] = useState<number | null>(null); // ← NEW
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const mapRef = useRef<MapView>(null);
 
-  // Realtime booking status listener
+  // ← CHANGED: now ALSO listens for counter_price changes, not just status
   useEffect(() => {
     if (!data.id) return;
     const channel = supabase
-      .channel("booking-status")
+      .channel(`booking-status-${data.id}`) // unique per booking — avoids the crash we fixed in chat
       .on(
         "postgres_changes",
         {
@@ -85,6 +87,26 @@ export default function BookingScreen() {
         (payload) => {
           const newStatus = payload.new.status;
           setBookingStatus(newStatus);
+
+          // NEW: detect a counter offer from driver
+          if (
+            payload.new.negotiation_status === "countered" &&
+            payload.new.counter_price
+          ) {
+            setCounterPrice(payload.new.counter_price);
+            Alert.alert(
+              "Driver Counter Offer 💬",
+              `Driver offered ₨${payload.new.counter_price} instead of ₨${data.price}. Would you like to accept?`,
+              [
+                { text: "Reject", style: "cancel", onPress: rejectCounter },
+                {
+                  text: "Accept",
+                  onPress: () => acceptCounter(payload.new.counter_price),
+                },
+              ],
+            );
+          }
+
           if (newStatus === "accepted")
             Alert.alert("Driver Accepted! 🎉", "Your driver is on the way.");
           else if (newStatus === "completed") {
@@ -99,7 +121,25 @@ export default function BookingScreen() {
     };
   }, [data.id]);
 
-  // Smooth driver movement
+  // ← NEW: customer accepts the driver's counter price
+  const acceptCounter = async (newPrice: number) => {
+    await supabase
+      .from("bookings")
+      .update({ price: newPrice, negotiation_status: "accepted" })
+      .eq("id", data.id);
+    setCurrentPrice(newPrice);
+    setCounterPrice(null);
+  };
+
+  // ← NEW: customer rejects the counter — booking stays at original price
+  const rejectCounter = async () => {
+    await supabase
+      .from("bookings")
+      .update({ negotiation_status: "rejected", counter_price: null })
+      .eq("id", data.id);
+    setCounterPrice(null);
+  };
+
   useEffect(() => {
     const interval = setInterval(() => {
       setDriverLocation((prev) => ({
@@ -161,34 +201,44 @@ export default function BookingScreen() {
     router.replace("/(customer)");
   };
 
+  // ← CHANGED: blocked until driver accepts — calling/chatting before that makes no sense
   const onCall = async () => {
+    if (bookingStatus !== "accepted") {
+      Alert.alert("Not Yet", "You can call once the driver accepts your ride.");
+      return;
+    }
     const url = `tel:${data?.phone || "03001234567"}`;
     const supported = await Linking.canOpenURL(url);
     if (supported) await Linking.openURL(url);
     else Alert.alert("Error", "Phone calls not supported on this device");
   };
 
-  const statusColor =
-    bookingStatus === "accepted"
-      ? "#16a34a"
-      : bookingStatus === "cancelled"
-        ? "#dc2626"
-        : COLORS.primary;
-  const statusLabel =
-    bookingStatus === "accepted"
-      ? "✅ Driver is on the way!"
-      : bookingStatus === "cancelled"
-        ? "❌ Booking Cancelled"
-        : "⏳ Waiting for driver to accept...";
+  const onChat = () => {
+    if (bookingStatus !== "accepted") {
+      Alert.alert("Not Yet", "You can chat once the driver accepts your ride.");
+      return;
+    }
+    router.push(`/chat?booking=${encodeURIComponent(JSON.stringify(data))}`);
+  };
+
+  const isAccepted = bookingStatus === "accepted";
+  const statusColor = isAccepted
+    ? "#16a34a"
+    : bookingStatus === "cancelled"
+      ? "#dc2626"
+      : COLORS.primary;
+  const statusLabel = isAccepted
+    ? "✅ Driver is on the way!"
+    : bookingStatus === "cancelled"
+      ? "❌ Booking Cancelled"
+      : "⏳ Waiting for driver to accept...";
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
-      {/* ── Status Banner ── */}
       <View style={[styles.statusBanner, { backgroundColor: statusColor }]}>
         <Text style={styles.statusText}>{statusLabel}</Text>
       </View>
 
-      {/* ── Map ── */}
       <View style={styles.mapContainer}>
         <MapView
           ref={mapRef}
@@ -222,9 +272,7 @@ export default function BookingScreen() {
         </MapView>
       </View>
 
-      {/* ── Bottom Card ── */}
       <View style={styles.card}>
-        {/* Driver info row */}
         <View style={styles.driverRow}>
           <Image
             source={{
@@ -247,25 +295,27 @@ export default function BookingScreen() {
           </View>
         </View>
 
-        {/* Price row */}
         <View style={styles.priceRow}>
-          <Text style={styles.priceLabel}>Estimated Fare</Text>
-          <Text style={styles.priceValue}>₨ {data.price ?? "—"}</Text>
+          <Text style={styles.priceLabel}>
+            {counterPrice ? "Counter Offer Pending" : "Estimated Fare"}
+          </Text>
+          <Text style={styles.priceValue}>
+            ₨ {counterPrice ?? currentPrice ?? "—"}
+          </Text>
         </View>
 
-        {/* Action buttons */}
+        {/* ← CHANGED: Call & Chat visually disabled (greyed out) until accepted */}
         <View style={styles.actionsRow}>
-          <TouchableOpacity style={styles.actionBtn} onPress={onCall}>
+          <TouchableOpacity
+            style={[styles.actionBtn, !isAccepted && styles.actionBtnDisabled]}
+            onPress={onCall}
+          >
             <FontAwesomeIcon icon={faPhone} size={18} color={COLORS.white} />
             <Text style={styles.actionText}>Call</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() =>
-              router.push(
-                `/chat?booking=${encodeURIComponent(JSON.stringify(data))}`,
-              )
-            }
+            style={[styles.actionBtn, !isAccepted && styles.actionBtnDisabled]}
+            onPress={onChat}
           >
             <FontAwesomeIcon
               icon={faCommentDots}
@@ -281,9 +331,14 @@ export default function BookingScreen() {
             <Text style={styles.actionText}>Cancel</Text>
           </TouchableOpacity>
         </View>
+
+        {!isAccepted && (
+          <Text style={styles.hint}>
+            Call & Chat unlock once driver accepts
+          </Text>
+        )}
       </View>
 
-      {/* Cancel Modal */}
       <Modal visible={showCancelModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
@@ -318,17 +373,14 @@ export default function BookingScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.white },
-
   statusBanner: {
     paddingVertical: 10,
     paddingHorizontal: 16,
     alignItems: "center",
   },
   statusText: { color: COLORS.white, fontWeight: "700", fontSize: 14 },
-
   mapContainer: { flex: 1 },
   map: { flex: 1 },
-
   driverMarker: {
     width: 36,
     height: 36,
@@ -339,7 +391,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.white,
   },
-
   card: {
     backgroundColor: COLORS.white,
     borderTopLeftRadius: 24,
@@ -351,7 +402,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 10,
   },
-
   driverRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
   driverImage: {
     width: 54,
@@ -372,7 +422,6 @@ const styles = StyleSheet.create({
   },
   etaNum: { fontSize: 20, fontWeight: "700", color: COLORS.primary },
   etaLabel: { fontSize: 11, color: COLORS.gray },
-
   priceRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -384,7 +433,6 @@ const styles = StyleSheet.create({
   },
   priceLabel: { fontSize: 14, color: COLORS.gray, fontFamily: FONTS.medium },
   priceValue: { fontSize: 18, fontWeight: "700", color: COLORS.primary },
-
   actionsRow: { flexDirection: "row", gap: 10 },
   actionBtn: {
     flex: 1,
@@ -396,8 +444,9 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     borderRadius: 12,
   },
+  actionBtnDisabled: { backgroundColor: COLORS.gray, opacity: 0.6 }, // ← NEW
   actionText: { color: COLORS.white, fontWeight: "700", fontSize: 14 },
-
+  hint: { textAlign: "center", color: COLORS.gray, fontSize: 12, marginTop: 8 }, // ← NEW
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
