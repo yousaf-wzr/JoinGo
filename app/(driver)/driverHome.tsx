@@ -50,7 +50,35 @@ export default function DriverHome() {
 
     const startTracking = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") return;
+      if (status !== "granted") {
+        console.log("=== LOCATION PERMISSION DENIED ===");
+        return;
+      }
+
+      // ← NEW: get an immediate location reading right away
+      // (watchPositionAsync only fires on movement, so a stationary driver
+      // might wait a long time for the first update without this)
+      try {
+        const initialLoc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        const { latitude, longitude } = initialLoc.coords;
+        setDriverLoc({ latitude, longitude });
+
+        const { error } = await supabase.from("driver_locations").upsert({
+          driver_id: userId,
+          latitude,
+          longitude,
+          is_online: true,
+          updated_at: new Date().toISOString(),
+        });
+
+        if (error)
+          console.log("=== INITIAL LOCATION SAVE ERROR ===", error.message);
+        else console.log("=== INITIAL LOCATION SAVED ===", latitude, longitude);
+      } catch (e) {
+        console.log("=== GET CURRENT POSITION ERROR ===", e);
+      }
 
       // Watch position — fires every time driver moves
       subscription = await Location.watchPositionAsync(
@@ -65,13 +93,20 @@ export default function DriverHome() {
 
           // Save/update this driver's location in Supabase
           // upsert = update if exists, insert if not (since driver_id is the primary key)
-          await supabase.from("driver_locations").upsert({
+          const { error } = await supabase.from("driver_locations").upsert({
             driver_id: userId,
             latitude,
             longitude,
             is_online: true,
             updated_at: new Date().toISOString(),
           });
+
+          // ← NEW: surface any error so it's not silent
+          if (error) {
+            console.log("=== LOCATION UPSERT ERROR ===", error.message);
+          } else {
+            console.log("=== LOCATION SAVED ===", latitude, longitude);
+          }
         },
       );
     };
