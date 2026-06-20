@@ -70,10 +70,14 @@ export default function OffersScreen() {
   // Find real nearby online drivers within 5km
   useEffect(() => {
     const findNearbyDrivers = async () => {
+      console.log("=== DEBUG: Pickup coords ===", pickupLat, pickupLng);
+
       const { data: onlineDrivers } = await supabase
         .from("driver_locations")
         .select("driver_id, latitude, longitude")
         .eq("is_online", true);
+
+      console.log("=== DEBUG: Online drivers found ===", onlineDrivers);
 
       if (!onlineDrivers || onlineDrivers.length === 0) {
         setOffers([]);
@@ -87,6 +91,11 @@ export default function OffersScreen() {
           Number(pickupLng),
           d.latitude,
           d.longitude,
+        );
+        console.log(
+          `=== DEBUG: Distance to driver ${d.driver_id} ===`,
+          dist,
+          "km",
         );
         return dist <= 5;
       });
