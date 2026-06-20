@@ -68,7 +68,9 @@ const HomeScreen: React.FC = () => {
   const [dropoffCoords, setDropoffCoords] = useState<any>(null);
 
   const [paymentMethod, setPaymentMethod] = useState("Cash");
-  const [vehicleType, setVehicleType] = useState("Car");
+  const [vehicleType, setVehicleType] = useState<"Car" | "Motorcycle" | "Van">(
+    "Car",
+  );
   const [price, setPrice] = useState<number | null>(null);
   const [distanceKm, setDistanceKm] = useState<number | null>(null);
   const [routeCoords, setRouteCoords] = useState<any[]>([]);
@@ -123,9 +125,10 @@ const HomeScreen: React.FC = () => {
   const fetchCoords = async (address: string) => {
     try {
       const results = await Location.geocodeAsync(address);
+      console.log("=== GEOCODE RESULTS for", address, "===", results);
       if (results.length > 0) return results[0];
     } catch (e) {
-      console.log("Geocode error:", e);
+      console.log("=== GEOCODE ERROR ===", e);
     }
     return null;
   };
@@ -161,8 +164,20 @@ const HomeScreen: React.FC = () => {
   };
 
   const handleBooking = () => {
-    if (!pickup || !dropoff || !pickupCoords || !dropoffCoords) {
+    if (!pickup || !dropoff) {
       alert("Please fill in both pickup and drop-off!");
+      return;
+    }
+    if (!pickupCoords) {
+      alert(
+        "Still getting your current location. Please wait a moment and try again.",
+      );
+      return;
+    }
+    if (!dropoffCoords) {
+      alert(
+        "Couldn't find that drop-off location on the map. Try a more specific address (e.g. add city name).",
+      );
       return;
     }
     // Navigate to booking process screen
@@ -276,7 +291,7 @@ const HomeScreen: React.FC = () => {
       {/* Vehicle selection */}
       <Text style={styles.paymentLabel}>Vehicle Type</Text>
       <View style={styles.paymentOptions}>
-        {["Car", "Motorcycle", "Van"].map((type) => (
+        {(["Car", "Motorcycle", "Van"] as const).map((type) => (
           <TouchableOpacity
             key={type}
             style={[
