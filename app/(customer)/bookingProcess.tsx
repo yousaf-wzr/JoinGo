@@ -107,11 +107,16 @@ export default function OffersScreen() {
       }
 
       const driverIds = nearby.map((d) => d.driver_id);
-      const { data: profiles } = await supabase
+      console.log("=== DEBUG: Driver IDs to look up ===", driverIds);
+
+      const { data: profiles, error: profilesError } = await supabase
         .from("profiles")
         .select("id, full_name, car_model, vehicle_type, license_number, role")
         .in("id", driverIds)
         .eq("role", "driver");
+
+      console.log("=== DEBUG: Profiles found ===", profiles);
+      console.log("=== DEBUG: Profiles error ===", profilesError);
 
       const realOffers = nearby
         .filter((loc) => profiles?.some((p) => p.id === loc.driver_id))
