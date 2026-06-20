@@ -173,22 +173,34 @@ export default function OffersScreen() {
 
   // ← CLEANED: removed all debug alert()/console.log(), added a real guard for missing driverId
   const handleBook = async (item: any) => {
+    console.log("=== HANDLE BOOK CALLED ===", item.driverId);
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
+    console.log("=== CURRENT USER ===", user?.id);
+
     if (!user) {
       Alert.alert("Error", "You must be logged in to book a ride.");
       return;
     }
 
-    // ← NEW: guard — without a real driverId, the booking would never reach any driver
     if (!item.driverId) {
+      console.log("=== MISSING DRIVER ID ===");
       Alert.alert(
         "Error",
         "This driver is no longer available. Please choose another.",
       );
       return;
     }
+
+    console.log("=== ATTEMPTING INSERT ===", {
+      customer_id: user.id,
+      driver_id: item.driverId,
+      pickup,
+      dropoff,
+      price: item.price,
+    });
 
     const { data: newBooking, error } = await supabase
       .from("bookings")
@@ -203,6 +215,9 @@ export default function OffersScreen() {
       })
       .select()
       .single();
+
+    console.log("=== INSERT RESULT ===", newBooking);
+    console.log("=== INSERT ERROR ===", error);
 
     if (error) {
       Alert.alert("Booking Failed", error.message);
