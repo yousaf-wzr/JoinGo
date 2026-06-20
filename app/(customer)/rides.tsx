@@ -1,36 +1,36 @@
 import RideCard from "@/components/ride-card";
-import { supabase } from "@/config/supabaseConfig"; // ← NEW: so we can talk to database
+import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
-import React, { useEffect, useState } from "react"; // ← NEW: useEffect & useState added
+import { useFocusEffect } from "expo-router"; // ← NEW
+import React, { useCallback, useState } from "react"; // ← CHANGED: useCallback added
 import { FlatList, SafeAreaView, StyleSheet, Text } from "react-native";
 
 const Rides = () => {
-  // Instead of a fixed list, we start with an empty array
-  // and fill it later from the database
   const [rides, setRides] = useState<any[]>([]);
 
-  // useEffect runs once when the screen opens
-  useEffect(() => {
-    const fetchRides = async () => {
-      // Step 1: Who is logged in right now?
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return; // not logged in? stop here
+  const fetchRides = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
 
-      // Step 2: Go to the "bookings" table and get rides for THIS user only
-      const { data } = await supabase
-        .from("bookings")
-        .select("*") // get all columns
-        .eq("customer_id", user.id) // only this user's rides
-        .order("created_at", { ascending: false }); // newest ride first
+    const { data } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("customer_id", user.id)
+      .order("created_at", { ascending: false });
 
-      // Step 3: Save the rides into our state so the screen re-renders
-      if (data) setRides(data);
-    };
+    if (data) setRides(data);
+  }, []);
 
-    fetchRides();
-  }, []); // [] = run only once when screen loads
+  // ← FIXED: was useEffect (runs once on mount only)
+  // useFocusEffect re-runs EVERY time this screen comes into view —
+  // so a ride booked just now shows up immediately when you switch to this tab
+  useFocusEffect(
+    useCallback(() => {
+      fetchRides();
+    }, [fetchRides]),
+  );
 
   return (
     <SafeAreaView style={styles.container}>

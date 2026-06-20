@@ -2,8 +2,8 @@
 import RequestCard from "@/components/RequestCard";
 import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
-import { useRouter } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router"; // ← NEW: useFocusEffect added
+import React, { useCallback, useEffect, useRef, useState } from "react"; // ← NEW: useCallback added
 import {
   Animated,
   Easing,
@@ -56,21 +56,30 @@ export default function DriverRequests() {
     fetchDriverLocation();
   }, []);
 
+  // ← CHANGED: pulled out of useEffect so it can be reused by useFocusEffect below
+  const fetchRequests = useCallback(async () => {
+    if (!userId) return;
+
+    const { data } = await supabase
+      .from("bookings")
+      .select("*")
+      .eq("status", "pending")
+      .eq("driver_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (data) setRequests(data);
+  }, [userId]);
+
+  // ← NEW: safety net — refreshes the list every time driver opens/returns to this screen
+  // (the realtime listener below only catches bookings made WHILE this screen is already open)
+  useFocusEffect(
+    useCallback(() => {
+      fetchRequests();
+    }, [fetchRequests]),
+  );
+
   useEffect(() => {
     if (!userId) return; // wait until we know who's logged in
-
-    const fetchRequests = async () => {
-      // ← FIXED: only show bookings assigned to THIS driver
-      // Before, this showed ALL pending bookings system-wide, not just this driver's
-      const { data } = await supabase
-        .from("bookings")
-        .select("*")
-        .eq("status", "pending")
-        .eq("driver_id", userId)
-        .order("created_at", { ascending: false });
-
-      if (data) setRequests(data);
-    };
 
     fetchRequests();
 
