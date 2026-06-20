@@ -60,11 +60,9 @@ export default function OfferCard({
   const [counterPrice, setCounterPrice] = useState<number | null>(null);
   const [negotiationStatus, setNegotiationStatus] = useState("none");
 
-  // Listen for counter offers from driver in realtime
   useEffect(() => {
     if (!item.bookingId) return;
 
-    // Check if there's already a counter offer
     const checkCounter = async () => {
       const { data } = await supabase
         .from("bookings")
@@ -79,7 +77,6 @@ export default function OfferCard({
     };
     checkCounter();
 
-    // Realtime listener — driver sends counter → customer sees it instantly
     const channel = supabase
       .channel(`counter-${item.bookingId}`)
       .on(
@@ -108,7 +105,6 @@ export default function OfferCard({
     };
   }, [item.bookingId]);
 
-  // Customer accepts driver's counter price
   const acceptCounter = async () => {
     await supabase
       .from("bookings")
@@ -119,7 +115,6 @@ export default function OfferCard({
     setNegotiationStatus("accepted");
   };
 
-  // Customer rejects counter price — goes back to original
   const rejectCounter = async () => {
     await supabase
       .from("bookings")
@@ -133,7 +128,6 @@ export default function OfferCard({
 
   return (
     <View style={styles.card}>
-      {/* Driver Image */}
       <TouchableOpacity
         onPress={() =>
           router.push({
@@ -145,7 +139,6 @@ export default function OfferCard({
         <Image source={{ uri: item.image }} style={styles.image} />
       </TouchableOpacity>
 
-      {/* Info */}
       <View style={styles.infoContainer}>
         <Text style={styles.driverName}>{item.driverName}</Text>
         <Text style={styles.rating}>⭐ {item.rating}</Text>
@@ -159,7 +152,6 @@ export default function OfferCard({
           {item.distance} km • ETA: {item.eta} min
         </Text>
 
-        {/* Price — show counter if exists */}
         {counterPrice && negotiationStatus === "countered" ? (
           <View style={styles.counterBox}>
             <Text style={styles.originalPrice}>
@@ -189,18 +181,20 @@ export default function OfferCard({
         )}
       </View>
 
-      {/* Book Button — hidden if counter pending */}
+      {/* ← CLEANED: removed debug alert()/console.log() — just calls onPressBook now */}
       {negotiationStatus !== "countered" && (
         <TouchableOpacity
           style={styles.bookButton}
-          onPress={() =>
-            onPressBook
-              ? onPressBook()
-              : router.push({
-                  pathname: "/booking",
-                  params: { booking: JSON.stringify(item) },
-                })
-          }
+          onPress={() => {
+            if (onPressBook) {
+              onPressBook();
+            } else {
+              router.push({
+                pathname: "/booking",
+                params: { booking: JSON.stringify(item) },
+              });
+            }
+          }}
         >
           <Text style={styles.bookText}>Book</Text>
         </TouchableOpacity>
@@ -239,7 +233,6 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     marginTop: 5,
   },
-
   counterBox: { marginTop: 6 },
   originalPrice: { fontSize: 12, color: COLORS.gray },
   strikethrough: { textDecorationLine: "line-through" },
@@ -267,7 +260,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   rejectCounterTxt: { color: "#dc2626", fontWeight: "700", fontSize: 13 },
-
   bookButton: {
     backgroundColor: COLORS.primary,
     paddingHorizontal: 12,

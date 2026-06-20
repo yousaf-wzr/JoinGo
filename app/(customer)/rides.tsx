@@ -7,7 +7,7 @@ import { FlatList, SafeAreaView, StyleSheet, Text } from "react-native";
 const Rides = () => {
   // Instead of a fixed list, we start with an empty array
   // and fill it later from the database
-  const [rides, setRides] = useState([]);
+  const [rides, setRides] = useState<any[]>([]);
 
   // useEffect runs once when the screen opens
   useEffect(() => {

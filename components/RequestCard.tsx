@@ -2,10 +2,11 @@
 import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
+import { faCircle, faLocationDot } from "@fortawesome/free-solid-svg-icons";
+import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
 import React, { useState } from "react";
 import {
   Alert,
-  Image,
   Modal,
   StyleSheet,
   Text,
@@ -24,19 +25,17 @@ const RequestCard: React.FC<Props> = ({ item, onPressAccept, onPressOpen }) => {
   const [showCounterModal, setShowCounterModal] = useState(false);
   const [counterPrice, setCounterPrice] = useState("");
 
-  // Driver submits a counter price
   const handleCounterOffer = async () => {
     if (!counterPrice || isNaN(Number(counterPrice))) {
       Alert.alert("Error", "Please enter a valid price.");
       return;
     }
 
-    // Save counter price to Supabase
     await supabase
       .from("bookings")
       .update({
         counter_price: Number(counterPrice),
-        negotiation_status: "countered", // customer will see this
+        negotiation_status: "countered",
       })
       .eq("id", item.id);
 
@@ -53,39 +52,52 @@ const RequestCard: React.FC<Props> = ({ item, onPressAccept, onPressOpen }) => {
       activeOpacity={0.9}
       onPress={onPressOpen}
     >
-      <View style={styles.row}>
-        <Image
-          source={{
-            uri:
-              item.avatar ||
-              `https://randomuser.me/api/portraits/men/${10 + (item.id % 70)}.jpg`,
-          }}
-          style={styles.avatar}
-        />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.name}>{item.passengerName || "Passenger"}</Text>
-          <Text style={styles.route} numberOfLines={1}>
-            {item.pickup} → {item.dropoff}
-          </Text>
-          <Text style={styles.meta}>
-            {item.distanceKm?.toFixed?.(1) || "—"} km · {item.eta || "—"} min
+      {/* Top row — vehicle type + price */}
+      <View style={styles.topRow}>
+        <View style={styles.vehicleBadge}>
+          <Text style={styles.vehicleBadgeText}>
+            {item.vehicle_type || "Car"}
           </Text>
         </View>
         <Text style={styles.price}>₨{item.price}</Text>
       </View>
 
+      {/* ── Route: From → To, clearly laid out ── */}
+      <View style={styles.routeContainer}>
+        <View style={styles.routeRow}>
+          <FontAwesomeIcon icon={faCircle} size={10} color={COLORS.primary} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.routeLabel}>PICKUP</Text>
+            <Text style={styles.routeText} numberOfLines={2}>
+              {item.pickup || "Not specified"}
+            </Text>
+          </View>
+        </View>
+
+        {/* Connecting line */}
+        <View style={styles.connector} />
+
+        <View style={styles.routeRow}>
+          <FontAwesomeIcon icon={faLocationDot} size={12} color="#dc2626" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.routeLabel}>DROP-OFF</Text>
+            <Text style={styles.routeText} numberOfLines={2}>
+              {item.dropoff || "Not specified"}
+            </Text>
+          </View>
+        </View>
+      </View>
+
       {/* Action Buttons */}
       <View style={styles.btnRow}>
-        {/* Accept button */}
         <TouchableOpacity style={styles.acceptBtn} onPress={onPressAccept}>
           <Text style={styles.acceptText}>✓ Accept</Text>
         </TouchableOpacity>
 
-        {/* Counter Offer button */}
         <TouchableOpacity
           style={styles.counterBtn}
           onPress={() => {
-            setCounterPrice(String(item.price)); // pre-fill with original price
+            setCounterPrice(String(item.price));
             setShowCounterModal(true);
           }}
         >
@@ -151,12 +163,52 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-  row: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  avatar: { width: 50, height: 50, borderRadius: 25, marginRight: 12 },
-  name: { fontSize: 16, fontWeight: "700", color: COLORS.black },
-  route: { fontSize: 13, color: COLORS.gray, marginTop: 2, maxWidth: 200 },
-  meta: { fontSize: 12, color: COLORS.gray, marginTop: 2 },
-  price: { fontSize: 16, fontWeight: "700", color: COLORS.primary },
+
+  topRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  vehicleBadge: {
+    backgroundColor: COLORS.lightGray,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  vehicleBadgeText: {
+    fontSize: 12,
+    fontFamily: FONTS.bold,
+    color: COLORS.black,
+  },
+  price: { fontSize: 18, fontWeight: "800", color: COLORS.primary },
+
+  routeContainer: {
+    backgroundColor: COLORS.lightGray,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  routeRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  connector: {
+    width: 1,
+    height: 14,
+    backgroundColor: COLORS.gray,
+    marginLeft: 4.5,
+    marginVertical: 2,
+  },
+  routeLabel: {
+    fontSize: 10,
+    color: COLORS.gray,
+    fontFamily: FONTS.bold,
+    letterSpacing: 0.5,
+  },
+  routeText: {
+    fontSize: 14,
+    color: COLORS.black,
+    fontFamily: FONTS.medium,
+    marginTop: 2,
+  },
 
   btnRow: { flexDirection: "row", gap: 10 },
   acceptBtn: {

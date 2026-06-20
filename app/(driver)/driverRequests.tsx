@@ -1,4 +1,5 @@
 // app/(driver)/driverRequests.tsx
+
 import RequestCard from "@/components/RequestCard";
 import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
@@ -17,8 +18,10 @@ import MapView, { Circle, Marker } from "react-native-maps";
 
 export default function DriverRequests() {
   const router = useRouter();
+
   const [requests, setRequests] = useState<any[]>([]);
-  // ← CHANGED: starts null until we get the driver's real location
+  const [userId, setUserId] = useState("");
+
   const [driverLoc, setDriverLoc] = useState<{
     latitude: number;
     longitude: number;
@@ -27,14 +30,16 @@ export default function DriverRequests() {
   const pulse = useRef(new Animated.Value(0)).current;
   const [radius, setRadius] = useState(60);
 
-  // ← NEW: get the driver's real current location from driver_locations table
-  // (this is the same location driverHome.tsx is broadcasting while online)
+  // Get driver location + logged-in user id
   useEffect(() => {
     const fetchDriverLocation = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+
       if (!user) return;
+
+      setUserId(user.id);
 
       const { data } = await supabase
         .from("driver_locations")
@@ -43,36 +48,59 @@ export default function DriverRequests() {
         .single();
 
       if (data) {
-        setDriverLoc({ latitude: data.latitude, longitude: data.longitude });
+        setDriverLoc({
+          latitude: data.latitude,
+          longitude: data.longitude,
+        });
       } else {
-        // Fallback only if no location found yet (e.g. driver just went online)
-        setDriverLoc({ latitude: 37.78825, longitude: -122.4324 });
+        setDriverLoc({
+          latitude: 37.78825,
+          longitude: -122.4324,
+        });
       }
     };
 
     fetchDriverLocation();
   }, []);
 
+  // Fetch driver's assigned pending requests
   useEffect(() => {
+    if (!userId) return;
+
     const fetchRequests = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("bookings")
         .select("*")
+        .eq("driver_id", userId)
         .eq("status", "pending")
         .order("created_at", { ascending: false });
 
-      if (data) setRequests(data);
+      if (error) {
+        console.log("FETCH REQUESTS ERROR:", error);
+        return;
+      }
+
+      if (data) {
+        setRequests(data);
+      }
     };
 
     fetchRequests();
 
     const channel = supabase
-      .channel("pending-bookings")
+      .channel(`driver-bookings-${userId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "bookings" },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "bookings",
+        },
         (payload) => {
-          if (payload.new.status === "pending") {
+          if (
+            payload.new.status === "pending" &&
+            payload.new.driver_id === userId
+          ) {
             setRequests((prev) => [payload.new, ...prev]);
           }
         },
@@ -82,8 +110,9 @@ export default function DriverRequests() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [userId]);
 
+  // Pulse animation
   useEffect(() => {
     const loop = () => {
       Animated.sequence([
@@ -100,15 +129,18 @@ export default function DriverRequests() {
         }),
       ]).start(loop);
     };
+
     loop();
   }, []);
 
   useEffect(() => {
-    const id = pulse.addListener(({ value }) => setRadius(60 + value * 140));
+    const id = pulse.addListener(({ value }) => {
+      setRadius(60 + value * 140);
+    });
+
     return () => pulse.removeListener(id);
   }, []);
 
-  // Don't render the map until we know the driver's real location
   if (!driverLoc) {
     return (
       <SafeAreaView style={styles.container}>
@@ -143,6 +175,7 @@ export default function DriverRequests() {
             strokeWidth={1}
             fillColor="transparent"
           />
+
           <Marker coordinate={driverLoc} title="You" />
         </MapView>
       </View>
@@ -157,20 +190,24 @@ export default function DriverRequests() {
 
         <FlatList
           data={requests}
-          keyExtractor={(it) => String(it.id)}
-          renderItem={({ item }: { item: any }) => (
+          keyExtractor={(item) => String(item.id)}
+          renderItem={({ item }) => (
             <RequestCard
               item={item}
               onPressOpen={() =>
                 router.push({
                   pathname: "/driverBooking",
-                  params: { booking: JSON.stringify(item) },
+                  params: {
+                    booking: JSON.stringify(item),
+                  },
                 })
               }
               onPressAccept={() =>
                 router.replace({
                   pathname: "/driverBooking",
-                  params: { booking: JSON.stringify(item) },
+                  params: {
+                    booking: JSON.stringify(item),
+                  },
                 })
               }
             />
@@ -186,7 +223,12 @@ export default function DriverRequests() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.white, marginTop: 30 },
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.white,
+    marginTop: 30,
+  },
+
   sheet: {
     flex: 1,
     backgroundColor: COLORS.white,
@@ -196,7 +238,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 12,
   },
-  title: { fontSize: 18, fontWeight: "700", marginBottom: 8 },
-  badge: { color: COLORS.primary, fontSize: 16 },
-  emptyText: { textAlign: "center", color: COLORS.gray, marginTop: 40 },
+
+  title: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+
+  badge: {
+    color: COLORS.primary,
+    fontSize: 16,
+  },
+
+  emptyText: {
+    textAlign: "center",
+    color: COLORS.gray,
+    marginTop: 40,
+  },
 });
