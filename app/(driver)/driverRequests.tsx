@@ -26,6 +26,7 @@ export default function DriverRequests() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+      console.log("=== DRIVER REQUESTS: logged in as ===", user?.id);
       if (user) setUserId(user.id);
     };
     getUser();
@@ -33,14 +34,22 @@ export default function DriverRequests() {
 
   // Fetch this driver's pending requests — reusable for focus + realtime
   const fetchRequests = useCallback(async () => {
-    if (!userId) return;
+    if (!userId) {
+      console.log("=== DRIVER REQUESTS: no userId yet, skipping fetch ===");
+      return;
+    }
 
-    const { data } = await supabase
+    console.log("=== DRIVER REQUESTS: fetching for userId ===", userId);
+
+    const { data, error } = await supabase
       .from("bookings")
       .select("*")
       .eq("status", "pending")
       .eq("driver_id", userId)
       .order("created_at", { ascending: false });
+
+    console.log("=== DRIVER REQUESTS: data ===", data);
+    console.log("=== DRIVER REQUESTS: error ===", error);
 
     setRequests(data || []);
     setLoading(false);
