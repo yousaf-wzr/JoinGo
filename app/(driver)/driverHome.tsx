@@ -140,16 +140,19 @@ export default function DriverHome() {
     }
 
     const fetchRequests = async () => {
+      // ← FIXED: was missing driver_id filter — counted EVERY pending booking
+      // system-wide instead of just this driver's assigned requests
       const { data } = await supabase
         .from("bookings")
         .select("*")
-        .eq("status", "pending");
+        .eq("status", "pending")
+        .eq("driver_id", userId);
 
       if (data) setRequests(data);
     };
 
     fetchRequests();
-  }, [isOnline]);
+  }, [isOnline, userId]);
 
   const statusText = useMemo(
     () => (isOnline ? "Online" : "Offline"),
