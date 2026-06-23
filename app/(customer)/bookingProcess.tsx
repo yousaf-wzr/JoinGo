@@ -1,4 +1,9 @@
 // app/(customer)/bookingProcess.tsx
+//
+// Shown after a customer enters pickup/dropoff and taps "Book Now".
+// Searches for online drivers within 5km of the pickup point and lets
+// the customer book one. Creates the booking row in Supabase on confirm.
+
 import OfferCard, { VehicleIcon } from "@/components/offerCard";
 import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
@@ -16,7 +21,10 @@ import {
 import MapView, { Circle, Marker } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const distanceKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
+const NEARBY_RADIUS_KM = 5;
+
+// Calculates straight-line distance between two coordinates, in kilometers
+function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   const toRad = (x: number) => (x * Math.PI) / 180;
   const R = 6371;
   const dLat = toRad(lat2 - lat1);
@@ -25,7 +33,7 @@ const distanceKm = (lat1: number, lng1: number, lat2: number, lng2: number) => {
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(a));
-};
+}
 
 export default function OffersScreen() {
   const router = useRouter();
@@ -39,6 +47,7 @@ export default function OffersScreen() {
   const mapRef = useRef<MapView>(null);
   const [pulseRadius, setPulseRadius] = useState(50);
 
+  // Animates the pulsing circle around the pickup marker
   useEffect(() => {
     const loop = () => {
       Animated.sequence([
@@ -67,17 +76,13 @@ export default function OffersScreen() {
     };
   }, []);
 
-  // Find real nearby online drivers within 5km
+  // Finds online drivers within NEARBY_RADIUS_KM of the pickup point
   useEffect(() => {
     const findNearbyDrivers = async () => {
-      console.log("=== DEBUG: Pickup coords ===", pickupLat, pickupLng);
-
       const { data: onlineDrivers } = await supabase
         .from("driver_locations")
         .select("driver_id, latitude, longitude")
         .eq("is_online", true);
-
-      console.log("=== DEBUG: Online drivers found ===", onlineDrivers);
 
       if (!onlineDrivers || onlineDrivers.length === 0) {
         setOffers([]);
@@ -92,12 +97,7 @@ export default function OffersScreen() {
           d.latitude,
           d.longitude,
         );
-        console.log(
-          `=== DEBUG: Distance to driver ${d.driver_id} ===`,
-          dist,
-          "km",
-        );
-        return dist <= 5;
+        return dist <= NEARBY_RADIUS_KM;
       });
 
       if (nearby.length === 0) {
@@ -106,17 +106,14 @@ export default function OffersScreen() {
         return;
       }
 
+      // Look up each nearby driver's profile so we can show their name and vehicle.
+      // Filtered to role = "driver" as a safety check against stale data.
       const driverIds = nearby.map((d) => d.driver_id);
-      console.log("=== DEBUG: Driver IDs to look up ===", driverIds);
-
-      const { data: profiles, error: profilesError } = await supabase
+      const { data: profiles } = await supabase
         .from("profiles")
         .select("id, full_name, car_model, vehicle_type, license_number, role")
         .in("id", driverIds)
         .eq("role", "driver");
-
-      console.log("=== DEBUG: Profiles found ===", profiles);
-      console.log("=== DEBUG: Profiles error ===", profilesError);
 
       const realOffers = nearby
         .filter((loc) => profiles?.some((p) => p.id === loc.driver_id))
@@ -131,12 +128,12 @@ export default function OffersScreen() {
 
           return {
             id: loc.driver_id,
-            driverId: loc.driver_id, // ← this MUST exist for booking to reach the driver
+            driverId: loc.driver_id,
             driverName: profile?.full_name || "Driver",
             image: `https://www.gravatar.com/avatar/${loc.driver_id}?d=mp&s=100`,
             rating: "4.8",
             price: Number(price),
-            eta: Math.max(1, Math.round((dist / 30) * 60)),
+            eta: Math.max(1, Math.round((dist / 30) * 60)), // estimate at ~30 km/h average speed
             distance: dist.toFixed(1),
             latitude: loc.latitude,
             longitude: loc.longitude,
@@ -171,36 +168,23 @@ export default function OffersScreen() {
     findNearbyDrivers();
   }, []);
 
-  // ← CLEANED: removed all debug alert()/console.log(), added a real guard for missing driverId
+  // Creates the booking row in Supabase, then navigates to the live tracking screen
   const handleBook = async (item: any) => {
-    console.log("=== HANDLE BOOK CALLED ===", item.driverId);
-
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    console.log("=== CURRENT USER ===", user?.id);
-
     if (!user) {
       Alert.alert("Error", "You must be logged in to book a ride.");
       return;
     }
 
     if (!item.driverId) {
-      console.log("=== MISSING DRIVER ID ===");
       Alert.alert(
         "Error",
         "This driver is no longer available. Please choose another.",
       );
       return;
     }
-
-    console.log("=== ATTEMPTING INSERT ===", {
-      customer_id: user.id,
-      driver_id: item.driverId,
-      pickup,
-      dropoff,
-      price: item.price,
-    });
 
     const { data: newBooking, error } = await supabase
       .from("bookings")
@@ -216,9 +200,6 @@ export default function OffersScreen() {
       .select()
       .single();
 
-    console.log("=== INSERT RESULT ===", newBooking);
-    console.log("=== INSERT ERROR ===", error);
-
     if (error) {
       Alert.alert("Booking Failed", error.message);
       return;
@@ -232,6 +213,8 @@ export default function OffersScreen() {
             ...item,
             id: newBooking.id,
             bookingId: newBooking.id,
+            pickupLat: Number(pickupLat),
+            pickupLng: Number(pickupLng),
           }),
         },
       });

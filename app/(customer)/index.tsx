@@ -122,13 +122,14 @@ const HomeScreen: React.FC = () => {
   }, []);
 
   // Convert address to coordinates
+  // Converts a typed address into map coordinates using the device's geocoder.
+  // Returns null if the address can't be resolved (e.g. too vague or misspelled).
   const fetchCoords = async (address: string) => {
     try {
       const results = await Location.geocodeAsync(address);
-      console.log("=== GEOCODE RESULTS for", address, "===", results);
       if (results.length > 0) return results[0];
-    } catch (e) {
-      console.log("=== GEOCODE ERROR ===", e);
+    } catch {
+      // Geocoding failed — caller will show an appropriate message
     }
     return null;
   };

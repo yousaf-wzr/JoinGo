@@ -1,4 +1,8 @@
 // app/(driver)/driverRequests.tsx
+//
+// Shows the driver their pending ride requests, updating in real time
+// as new bookings come in, and lets them accept a request to start a trip.
+
 import RequestCard from "@/components/RequestCard";
 import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
@@ -20,49 +24,38 @@ export default function DriverRequests() {
   const [userId, setUserId] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // Get the logged-in driver's ID once
   useEffect(() => {
     const getUser = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      console.log("=== DRIVER REQUESTS: logged in as ===", user?.id);
       if (user) setUserId(user.id);
     };
     getUser();
   }, []);
 
-  // Fetch this driver's pending requests — reusable for focus + realtime
   const fetchRequests = useCallback(async () => {
-    if (!userId) {
-      console.log("=== DRIVER REQUESTS: no userId yet, skipping fetch ===");
-      return;
-    }
+    if (!userId) return;
 
-    console.log("=== DRIVER REQUESTS: fetching for userId ===", userId);
-
-    const { data, error } = await supabase
+    const { data } = await supabase
       .from("bookings")
       .select("*")
       .eq("status", "pending")
       .eq("driver_id", userId)
       .order("created_at", { ascending: false });
 
-    console.log("=== DRIVER REQUESTS: data ===", data);
-    console.log("=== DRIVER REQUESTS: error ===", error);
-
     setRequests(data || []);
     setLoading(false);
   }, [userId]);
 
-  // Refresh every time driver opens/returns to this screen
+  // Refresh whenever the driver returns to this screen
   useFocusEffect(
     useCallback(() => {
       fetchRequests();
     }, [fetchRequests]),
   );
 
-  // Realtime — new bookings appear instantly while screen is open
+  // Subscribe to new bookings assigned to this driver while the screen is open
   useEffect(() => {
     if (!userId) return;
 
@@ -91,7 +84,6 @@ export default function DriverRequests() {
     };
   }, [userId]);
 
-  // ← NEW: clean Accept handler — updates status, then navigates to live tracking
   const handleAccept = async (item: any) => {
     const { error } = await supabase
       .from("bookings")
@@ -99,7 +91,6 @@ export default function DriverRequests() {
       .eq("id", item.id);
 
     if (!error) {
-      // Remove from the list immediately for snappy UI feedback
       setRequests((prev) => prev.filter((r) => r.id !== item.id));
       router.replace({
         pathname: "/driverBooking",
@@ -121,7 +112,6 @@ export default function DriverRequests() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>Ride Requests</Text>
         <View style={styles.countBadge}>
@@ -174,7 +164,6 @@ const styles = StyleSheet.create({
   },
   centered: { flex: 1, justifyContent: "center", alignItems: "center" },
   loadingText: { marginTop: 12, color: COLORS.gray, fontSize: 14 },
-
   header: { flexDirection: "row", alignItems: "center", gap: 10 },
   title: { fontSize: 24, fontFamily: FONTS.bold, color: COLORS.black },
   countBadge: {
@@ -194,7 +183,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontFamily: FONTS.regular,
   },
-
   emptyState: { alignItems: "center", marginTop: 80, paddingHorizontal: 30 },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
   emptyTitle: {

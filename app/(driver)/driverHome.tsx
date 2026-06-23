@@ -1,4 +1,9 @@
 // app/(driver)/driverHome.tsx
+//
+// The driver's main dashboard. Lets the driver go online/offline,
+// broadcasts their live GPS location to Supabase while online so
+// customers can find them, and shows a count of pending requests.
+
 import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
@@ -8,7 +13,7 @@ import {
   faToggleOn,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
-import * as Location from "expo-location"; // ← NEW: real GPS
+import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -22,7 +27,7 @@ import MapView, { Marker } from "react-native-maps";
 
 export default function DriverHome() {
   const router = useRouter();
-  const [isOnline, setIsOnline] = useState(false); // ← CHANGED: start offline by default, safer
+  const [isOnline, setIsOnline] = useState(false);
   const [driverLoc, setDriverLoc] = useState({
     latitude: 37.78825,
     longitude: -122.4324,
@@ -31,7 +36,6 @@ export default function DriverHome() {
   const [userId, setUserId] = useState("");
   const mapRef = useRef<MapView>(null);
 
-  // Get logged in driver's ID once
   useEffect(() => {
     const getUser = async () => {
       const {
@@ -42,7 +46,7 @@ export default function DriverHome() {
     getUser();
   }, []);
 
-  // ← NEW: Track and broadcast driver's live GPS location while online
+  // Track and broadcast the driver's live GPS location while online
   useEffect(() => {
     if (!isOnline || !userId) return;
 
@@ -50,14 +54,11 @@ export default function DriverHome() {
 
     const startTracking = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        console.log("=== LOCATION PERMISSION DENIED ===");
-        return;
-      }
+      if (status !== "granted") return;
 
-      // ← NEW: get an immediate location reading right away
-      // (watchPositionAsync only fires on movement, so a stationary driver
-      // might wait a long time for the first update without this)
+      // Get an immediate reading right away — watchPositionAsync only fires
+      // on movement, so a stationary driver could otherwise wait a long time
+      // for their first location update.
       try {
         const initialLoc = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.High,
@@ -65,22 +66,17 @@ export default function DriverHome() {
         const { latitude, longitude } = initialLoc.coords;
         setDriverLoc({ latitude, longitude });
 
-        const { error } = await supabase.from("driver_locations").upsert({
+        await supabase.from("driver_locations").upsert({
           driver_id: userId,
           latitude,
           longitude,
           is_online: true,
           updated_at: new Date().toISOString(),
         });
-
-        if (error)
-          console.log("=== INITIAL LOCATION SAVE ERROR ===", error.message);
-        else console.log("=== INITIAL LOCATION SAVED ===", latitude, longitude);
-      } catch (e) {
-        console.log("=== GET CURRENT POSITION ERROR ===", e);
+      } catch {
+        // Silently ignore — watchPositionAsync below will pick up location shortly
       }
 
-      // Watch position — fires every time driver moves
       subscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
@@ -91,35 +87,26 @@ export default function DriverHome() {
           const { latitude, longitude } = loc.coords;
           setDriverLoc({ latitude, longitude });
 
-          // Save/update this driver's location in Supabase
-          // upsert = update if exists, insert if not (since driver_id is the primary key)
-          const { error } = await supabase.from("driver_locations").upsert({
+          // upsert: creates the row if it doesn't exist yet, otherwise updates it
+          await supabase.from("driver_locations").upsert({
             driver_id: userId,
             latitude,
             longitude,
             is_online: true,
             updated_at: new Date().toISOString(),
           });
-
-          // ← NEW: surface any error so it's not silent
-          if (error) {
-            console.log("=== LOCATION UPSERT ERROR ===", error.message);
-          } else {
-            console.log("=== LOCATION SAVED ===", latitude, longitude);
-          }
         },
       );
     };
 
     startTracking();
 
-    // Cleanup: stop tracking when driver goes offline or leaves screen
     return () => {
       subscription?.remove();
     };
   }, [isOnline, userId]);
 
-  // ← NEW: When driver goes offline, mark them offline in the database
+  // When the driver goes offline, mark them as offline so customers stop seeing them
   const toggleOnline = async () => {
     const newStatus = !isOnline;
     setIsOnline(newStatus);
@@ -132,16 +119,14 @@ export default function DriverHome() {
     }
   };
 
-  // Fetch pending requests
+  // Keep the pending request count up to date while online
   useEffect(() => {
-    if (!isOnline) {
+    if (!isOnline || !userId) {
       setRequests([]);
       return;
     }
 
     const fetchRequests = async () => {
-      // ← FIXED: was missing driver_id filter — counted EVERY pending booking
-      // system-wide instead of just this driver's assigned requests
       const { data } = await supabase
         .from("bookings")
         .select("*")

@@ -181,7 +181,7 @@ export default function OfferCard({
         )}
       </View>
 
-      {/* ← CLEANED: removed debug alert()/console.log() — just calls onPressBook now */}
+      {/* Booking button — hidden while a counter offer is pending */}
       {negotiationStatus !== "countered" && (
         <TouchableOpacity
           style={styles.bookButton}

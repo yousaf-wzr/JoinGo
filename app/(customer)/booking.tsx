@@ -1,4 +1,9 @@
 // app/(customer)/booking.tsx
+//
+// Live ride tracking screen for the customer.
+// Shows the driver's real-time location moving toward the pickup point,
+// plus booking status updates and fare negotiation, all via Supabase Realtime.
+
 import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
@@ -14,8 +19,6 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
-  Animated,
-  Easing,
   Image,
   Linking,
   Modal,
@@ -27,55 +30,62 @@ import {
 import MapView, { Marker, Polyline } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const haversine = (
+// Calculates straight-line distance between two coordinates, in kilometers
+function distanceKm(
   a: { latitude: number; longitude: number },
   b: { latitude: number; longitude: number },
-) => {
+) {
   const toRad = (x: number) => (x * Math.PI) / 180;
   const R = 6371;
   const dLat = toRad(b.latitude - a.latitude);
   const dLon = toRad(b.longitude - a.longitude);
-  const s =
-    Math.sin(dLat / 2) ** 2 +
+  const sinHalfDLat = Math.sin(dLat / 2);
+  const sinHalfDLon = Math.sin(dLon / 2);
+  const a2 =
+    sinHalfDLat ** 2 +
     Math.cos(toRad(a.latitude)) *
       Math.cos(toRad(b.latitude)) *
-      Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(s));
-};
+      sinHalfDLon ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a2));
+}
 
 export default function BookingScreen() {
   const { booking } = useLocalSearchParams();
   const router = useRouter();
   const data = booking ? JSON.parse(booking as string) : {};
 
-  const vehicleIcon = useMemo(() => {
-    const t = (data?.vehicle?.type || "").toLowerCase();
-    if (t.includes("motor")) return faMotorcycle;
-    if (t.includes("van")) return faTruckPickup;
-    return faCarSide;
-  }, [data?.vehicle?.type]);
+  // The customer's pickup location, passed from the previous screen
+  const pickupLocation = {
+    latitude: Number(data.pickupLat) || 0,
+    longitude: Number(data.pickupLng) || 0,
+  };
 
-  const [passengerLocation] = useState({
-    latitude: 37.78925,
-    longitude: -122.4324,
-  });
+  // Driver's live location, refreshed by polling driver_locations every few seconds
   const [driverLocation, setDriverLocation] = useState({
-    latitude: 37.78825,
-    longitude: -122.4324,
+    latitude: Number(data.latitude) || pickupLocation.latitude,
+    longitude: Number(data.longitude) || pickupLocation.longitude,
   });
+
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [etaMinutes, setEtaMinutes] = useState(0);
   const [bookingStatus, setBookingStatus] = useState("pending");
-  const [currentPrice, setCurrentPrice] = useState(data.price); // ← NEW: track price (can change if counter accepted)
-  const [counterPrice, setCounterPrice] = useState<number | null>(null); // ← NEW
-  const pulseAnim = useRef(new Animated.Value(0)).current;
+  const [currentPrice, setCurrentPrice] = useState(data.price);
+  const [counterPrice, setCounterPrice] = useState<number | null>(null);
   const mapRef = useRef<MapView>(null);
 
-  // ← CHANGED: now ALSO listens for counter_price changes, not just status
+  const vehicleIcon = useMemo(() => {
+    const type = (data?.vehicle?.type || "").toLowerCase();
+    if (type.includes("motor")) return faMotorcycle;
+    if (type.includes("van")) return faTruckPickup;
+    return faCarSide;
+  }, [data?.vehicle?.type]);
+
+  // Listen for booking status and fare negotiation changes in real time
   useEffect(() => {
     if (!data.id) return;
+
     const channel = supabase
-      .channel(`booking-status-${data.id}`) // unique per booking — avoids the crash we fixed in chat
+      .channel(`booking-status-${data.id}`)
       .on(
         "postgres_changes",
         {
@@ -85,18 +95,16 @@ export default function BookingScreen() {
           filter: `id=eq.${data.id}`,
         },
         (payload) => {
-          const newStatus = payload.new.status;
-          setBookingStatus(newStatus);
+          setBookingStatus(payload.new.status);
 
-          // NEW: detect a counter offer from driver
           if (
             payload.new.negotiation_status === "countered" &&
             payload.new.counter_price
           ) {
             setCounterPrice(payload.new.counter_price);
             Alert.alert(
-              "Driver Counter Offer 💬",
-              `Driver offered ₨${payload.new.counter_price} instead of ₨${data.price}. Would you like to accept?`,
+              "Driver Counter Offer",
+              `Driver offered ₨${payload.new.counter_price} instead of ₨${data.price}. Accept?`,
               [
                 { text: "Reject", style: "cancel", onPress: rejectCounter },
                 {
@@ -107,21 +115,63 @@ export default function BookingScreen() {
             );
           }
 
-          if (newStatus === "accepted")
-            Alert.alert("Driver Accepted! 🎉", "Your driver is on the way.");
-          else if (newStatus === "completed") {
+          if (payload.new.status === "accepted") {
+            Alert.alert("Driver Accepted", "Your driver is on the way.");
+          } else if (payload.new.status === "completed") {
             Alert.alert("Trip Completed", "Hope you had a great ride!");
             router.replace("/(customer)");
           }
         },
       )
       .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
     };
   }, [data.id]);
 
-  // ← NEW: customer accepts the driver's counter price
+  // Poll the driver's live GPS location every 4 seconds
+  // (driverHome.tsx writes to this same table while the driver is online)
+  useEffect(() => {
+    if (!data.driverId) return;
+
+    const fetchDriverLocation = async () => {
+      const { data: location } = await supabase
+        .from("driver_locations")
+        .select("latitude, longitude")
+        .eq("driver_id", data.driverId)
+        .single();
+
+      if (location) {
+        setDriverLocation({
+          latitude: location.latitude,
+          longitude: location.longitude,
+        });
+      }
+    };
+
+    fetchDriverLocation();
+    const interval = setInterval(fetchDriverLocation, 4000);
+    return () => clearInterval(interval);
+  }, [data.driverId]);
+
+  // Recalculate ETA whenever the driver's position updates
+  useEffect(() => {
+    const km = distanceKm(driverLocation, pickupLocation);
+    setEtaMinutes(Math.max(1, Math.round((km / 25) * 60))); // assumes ~25 km/h average city speed
+  }, [driverLocation]);
+
+  // Keep both markers visible on screen as the driver moves
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      mapRef.current?.fitToCoordinates([driverLocation, pickupLocation], {
+        edgePadding: { top: 60, bottom: 60, left: 60, right: 60 },
+        animated: true,
+      });
+    }, 400);
+    return () => clearTimeout(timeout);
+  }, [driverLocation]);
+
   const acceptCounter = async (newPrice: number) => {
     await supabase
       .from("bookings")
@@ -131,7 +181,6 @@ export default function BookingScreen() {
     setCounterPrice(null);
   };
 
-  // ← NEW: customer rejects the counter — booking stays at original price
   const rejectCounter = async () => {
     await supabase
       .from("bookings")
@@ -140,98 +189,49 @@ export default function BookingScreen() {
     setCounterPrice(null);
   };
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDriverLocation((prev) => ({
-        latitude:
-          prev.latitude + (passengerLocation.latitude - prev.latitude) * 0.05,
-        longitude:
-          prev.longitude +
-          (passengerLocation.longitude - prev.longitude) * 0.05,
-      }));
-    }, 1500);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    setEtaMinutes(
-      Math.max(
-        1,
-        Math.round((haversine(driverLocation, passengerLocation) / 25) * 60),
-      ),
-    );
-  }, [driverLocation]);
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0,
-          duration: 1200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    ).start();
-  }, []);
-
-  useEffect(() => {
-    const t = setTimeout(() => {
-      mapRef.current?.fitToCoordinates([driverLocation, passengerLocation], {
-        edgePadding: { top: 60, bottom: 60, left: 60, right: 60 },
-        animated: true,
-      });
-    }, 400);
-    return () => clearTimeout(t);
-  }, [driverLocation]);
-
   const cancelBooking = async () => {
     setShowCancelModal(false);
-    if (data.id)
+    if (data.id) {
       await supabase
         .from("bookings")
         .update({ status: "cancelled" })
         .eq("id", data.id);
+    }
     router.replace("/(customer)");
   };
 
-  // ← CHANGED: blocked until driver accepts — calling/chatting before that makes no sense
+  const isAccepted = bookingStatus === "accepted";
+
+  // Calling and chat only make sense once a driver has actually accepted the ride
   const onCall = async () => {
-    if (bookingStatus !== "accepted") {
+    if (!isAccepted) {
       Alert.alert("Not Yet", "You can call once the driver accepts your ride.");
       return;
     }
     const url = `tel:${data?.phone || "03001234567"}`;
     const supported = await Linking.canOpenURL(url);
     if (supported) await Linking.openURL(url);
-    else Alert.alert("Error", "Phone calls not supported on this device");
+    else Alert.alert("Error", "Phone calls are not supported on this device.");
   };
 
   const onChat = () => {
-    if (bookingStatus !== "accepted") {
+    if (!isAccepted) {
       Alert.alert("Not Yet", "You can chat once the driver accepts your ride.");
       return;
     }
     router.push(`/chat?booking=${encodeURIComponent(JSON.stringify(data))}`);
   };
 
-  const isAccepted = bookingStatus === "accepted";
   const statusColor = isAccepted
     ? "#16a34a"
     : bookingStatus === "cancelled"
       ? "#dc2626"
       : COLORS.primary;
   const statusLabel = isAccepted
-    ? "✅ Driver is on the way!"
+    ? "Driver is on the way"
     : bookingStatus === "cancelled"
-      ? "❌ Booking Cancelled"
-      : "⏳ Waiting for driver to accept...";
+      ? "Booking Cancelled"
+      : "Waiting for driver to accept...";
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -244,17 +244,18 @@ export default function BookingScreen() {
           ref={mapRef}
           style={styles.map}
           initialRegion={{
-            latitude: driverLocation.latitude,
-            longitude: driverLocation.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
+            latitude: pickupLocation.latitude,
+            longitude: pickupLocation.longitude,
+            latitudeDelta: 0.02,
+            longitudeDelta: 0.02,
           }}
         >
           <Marker
-            coordinate={passengerLocation}
-            title="You"
+            coordinate={pickupLocation}
+            title="Pickup location"
             pinColor={COLORS.primary}
           />
+
           <Marker coordinate={driverLocation} title="Driver">
             <View style={styles.driverMarker}>
               <FontAwesomeIcon
@@ -264,8 +265,10 @@ export default function BookingScreen() {
               />
             </View>
           </Marker>
+
+          {/* Straight-line route between driver and pickup point */}
           <Polyline
-            coordinates={[driverLocation, passengerLocation]}
+            coordinates={[driverLocation, pickupLocation]}
             strokeWidth={3}
             strokeColor={COLORS.primary}
           />
@@ -304,7 +307,6 @@ export default function BookingScreen() {
           </Text>
         </View>
 
-        {/* ← CHANGED: Call & Chat visually disabled (greyed out) until accepted */}
         <View style={styles.actionsRow}>
           <TouchableOpacity
             style={[styles.actionBtn, !isAccepted && styles.actionBtnDisabled]}
@@ -334,7 +336,7 @@ export default function BookingScreen() {
 
         {!isAccepted && (
           <Text style={styles.hint}>
-            Call & Chat unlock once driver accepts
+            Call and Chat unlock once the driver accepts
           </Text>
         )}
       </View>
@@ -444,9 +446,9 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
     borderRadius: 12,
   },
-  actionBtnDisabled: { backgroundColor: COLORS.gray, opacity: 0.6 }, // ← NEW
+  actionBtnDisabled: { backgroundColor: COLORS.gray, opacity: 0.6 },
   actionText: { color: COLORS.white, fontWeight: "700", fontSize: 14 },
-  hint: { textAlign: "center", color: COLORS.gray, fontSize: 12, marginTop: 8 }, // ← NEW
+  hint: { textAlign: "center", color: COLORS.gray, fontSize: 12, marginTop: 8 },
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
