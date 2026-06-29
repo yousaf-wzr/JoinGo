@@ -1,4 +1,9 @@
 // app/driverBooking.tsx
+//
+// Live trip screen for the driver. Geocodes the booking's pickup/dropoff
+// addresses into map coordinates, tracks the driver's real GPS position,
+// and updates the booking status as the trip progresses.
+
 import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import {
@@ -9,6 +14,7 @@ import {
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-native-fontawesome";
+import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
@@ -18,19 +24,18 @@ import {
   Image,
   Linking,
   Modal,
-  SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
 import MapView, { Marker, Polyline } from "react-native-maps";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-// simple haversine
-const haversine = (
+function haversine(
   a: { latitude: number; longitude: number },
   b: { latitude: number; longitude: number },
-) => {
+) {
   const toRad = (x: number) => (x * Math.PI) / 180;
   const R = 6371;
   const dLat = toRad(b.latitude - a.latitude);
@@ -41,7 +46,7 @@ const haversine = (
     Math.sin(dLat / 2) ** 2 +
     Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(s));
-};
+}
 
 export default function DriverBooking() {
   const { booking } = useLocalSearchParams();
@@ -54,19 +59,20 @@ export default function DriverBooking() {
     phone: data?.phone || "03001234567",
   };
 
-  // coords
-  const pickup = {
-    latitude: Number(data?.pickupLat ?? 37.78925),
-    longitude: Number(data?.pickupLng ?? -122.4314),
-  };
-  const dropoff = {
-    latitude: Number(data?.dropoffLat ?? pickup.latitude + 0.02),
-    longitude: Number(data?.dropoffLng ?? pickup.longitude + 0.02),
-  };
-  const [driver, setDriver] = useState({
-    latitude: pickup.latitude - 0.01,
-    longitude: pickup.longitude - 0.01,
-  });
+  // The bookings table stores pickup/dropoff as address text, not coordinates,
+  // so we geocode them once when this screen loads.
+  const [pickup, setPickup] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [dropoff, setDropoff] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
+  const [driver, setDriver] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
   const [stage, setStage] = useState<"toPickup" | "toDropoff" | "completed">(
     "toPickup",
@@ -75,27 +81,90 @@ export default function DriverBooking() {
   const [showComplete, setShowComplete] = useState(false);
   const mapRef = useRef<MapView>(null);
 
-  // driver smoothly moves toward target (pickup or dropoff)
+  // Resolve the pickup/dropoff addresses into coordinates
   useEffect(() => {
+    const geocode = async () => {
+      try {
+        const pickupResults = await Location.geocodeAsync(data?.pickup || "");
+        const dropoffResults = await Location.geocodeAsync(data?.dropoff || "");
+
+        if (pickupResults.length > 0) {
+          setPickup({
+            latitude: pickupResults[0].latitude,
+            longitude: pickupResults[0].longitude,
+          });
+        }
+        if (dropoffResults.length > 0) {
+          setDropoff({
+            latitude: dropoffResults[0].latitude,
+            longitude: dropoffResults[0].longitude,
+          });
+        }
+      } catch {
+        // If geocoding fails, pickup/dropoff stay null and the map waits
+      }
+    };
+
+    geocode();
+  }, []);
+
+  // Use the driver's real, currently broadcasting location as the starting point
+  useEffect(() => {
+    const fetchDriverLocation = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: location } = await supabase
+        .from("driver_locations")
+        .select("latitude, longitude")
+        .eq("driver_id", user.id)
+        .single();
+
+      if (location) {
+        setDriver({
+          latitude: location.latitude,
+          longitude: location.longitude,
+        });
+      }
+    };
+
+    fetchDriverLocation();
+  }, []);
+
+  // Animate the driver marker moving toward the current target (pickup or dropoff)
+  useEffect(() => {
+    if (!driver || !pickup) return;
+
     const interval = setInterval(() => {
       const target = stage === "toPickup" ? pickup : dropoff;
-      setDriver((prev) => ({
-        latitude: prev.latitude + (target.latitude - prev.latitude) * 0.06,
-        longitude: prev.longitude + (target.longitude - prev.longitude) * 0.06,
-      }));
-    }, 1400);
-    return () => clearInterval(interval);
-  }, [stage]);
+      if (!target) return;
 
-  // recompute ETA
+      setDriver((prev) => {
+        if (!prev) return prev;
+        return {
+          latitude: prev.latitude + (target.latitude - prev.latitude) * 0.06,
+          longitude:
+            prev.longitude + (target.longitude - prev.longitude) * 0.06,
+        };
+      });
+    }, 1400);
+
+    return () => clearInterval(interval);
+  }, [stage, pickup, dropoff, driver === null]);
+
+  // Recompute ETA whenever the driver's position updates
   useEffect(() => {
+    if (!driver) return;
     const target = stage === "toPickup" ? pickup : dropoff;
+    if (!target) return;
+
     const km = haversine(driver, target);
-    // 25 km/h ~ city speed
-    setEta(Math.max(1, Math.round((km / 25) * 60)));
+    setEta(Math.max(1, Math.round((km / 25) * 60))); // assumes ~25 km/h average city speed
   }, [driver, stage]);
 
-  // pulse on driver marker
+  // Pulse animation on the driver marker
   const pulseAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.loop(
@@ -124,19 +193,25 @@ export default function DriverBooking() {
     outputRange: [0.45, 0],
   });
 
-  // fit markers on mount and on stage change
-  const fit = () => {
-    const coords =
-      stage === "toPickup" ? [driver, pickup] : [driver, pickup, dropoff];
-    mapRef.current?.fitToCoordinates(coords, {
-      edgePadding: { top: 120, bottom: 300, left: 80, right: 80 },
-      animated: true,
-    });
-  };
+  // Keep the relevant markers visible on screen as the trip progresses
   useEffect(() => {
-    const t = setTimeout(fit, 300);
+    if (!driver || !pickup) return;
+    const coords =
+      stage === "toPickup"
+        ? [driver, pickup]
+        : ([driver, pickup, dropoff].filter(Boolean) as {
+            latitude: number;
+            longitude: number;
+          }[]);
+
+    const t = setTimeout(() => {
+      mapRef.current?.fitToCoordinates(coords, {
+        edgePadding: { top: 120, bottom: 300, left: 80, right: 80 },
+        animated: true,
+      });
+    }, 300);
     return () => clearTimeout(t);
-  }, [driver, stage]);
+  }, [driver, stage, pickup, dropoff]);
 
   const onCall = async () => {
     try {
@@ -176,7 +251,27 @@ export default function DriverBooking() {
 
   const price = data?.price ?? "—";
   const routeCoords =
-    stage === "toPickup" ? [driver, pickup] : [driver, dropoff];
+    driver && (stage === "toPickup" ? pickup : dropoff)
+      ? [
+          driver,
+          (stage === "toPickup" ? pickup : dropoff) as {
+            latitude: number;
+            longitude: number;
+          },
+        ]
+      : [];
+
+  // Wait for the driver's location and the pickup address to resolve before
+  // showing the map — avoids rendering with incomplete/zeroed coordinates.
+  if (!driver || !pickup) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>Loading trip details...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -246,7 +341,7 @@ export default function DriverBooking() {
           </Marker>
 
           <Marker coordinate={pickup} title="Pickup" />
-          {stage !== "toPickup" && (
+          {stage !== "toPickup" && dropoff && (
             <Marker coordinate={dropoff} title="Drop-off" />
           )}
 
@@ -322,6 +417,8 @@ export default function DriverBooking() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.white, marginTop: 30 },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { color: COLORS.gray, fontSize: 14 },
   header: {
     flexDirection: "row",
     alignItems: "center",
