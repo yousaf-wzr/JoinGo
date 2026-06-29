@@ -16,7 +16,7 @@ interface ButtonProps {
   style?: ViewStyle;
   textStyle?: TextStyle;
   disabled?: boolean;
-  children?: React.ReactNode; // ← NEW: allows icons or any element inside button
+  children?: React.ReactNode; // optional icon or element shown next to the label
 }
 
 const Button: React.FC<ButtonProps> = ({
@@ -25,7 +25,7 @@ const Button: React.FC<ButtonProps> = ({
   style,
   textStyle,
   disabled = false,
-  children, // ← NEW
+  children,
 }) => {
   return (
     <TouchableOpacity
@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   disabled: {
-    backgroundColor: COLORS.gray, // ← FIXED: was still primary color when disabled
+    backgroundColor: COLORS.gray,
   },
 });
 

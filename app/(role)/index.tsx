@@ -1,7 +1,7 @@
 import Button from "@/components/button";
 import FONTS from "@/constants/fonts";
 import { Ionicons } from "@expo/vector-icons";
-import { Stack, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import {
   ImageBackground,
   SafeAreaView,
@@ -9,60 +9,56 @@ import {
   Text,
   View,
 } from "react-native";
-
 export default function RoleScreen() {
   const router = useRouter();
 
   return (
-    <>
-      <Stack.Screen options={{ headerShown: false }} />
+    <ImageBackground
+      source={require("../../assets/images/role.jpg")}
+      style={styles.background}
+      resizeMode="cover"
+    >
+      <View style={styles.overlay} />
+      <SafeAreaView style={styles.safeArea}>
+        <Text style={styles.title}>Choose Your Role</Text>
 
-      <ImageBackground
-        source={require("../../assets/images/role.jpg")}
-        style={styles.background}
-        resizeMode="cover"
-      >
-        <View style={styles.overlay} />
+        {/* ← Both buttons now go to signup with their role */}
+        {/* Signup will handle where to go AFTER — customer goes home, driver goes to requirements */}
+        <Button
+          label="Passenger"
+          style={styles.button}
+          onPress={() =>
+            router.push({
+              pathname: "/(auth)/signup",
+              params: { role: "customer" },
+            })
+          }
+        >
+          <Ionicons name="person-outline" size={28} color="white" />
+        </Button>
 
-        <SafeAreaView style={styles.safeArea}>
-          <Text style={styles.title}>Choose Your Role</Text>
+        <Button
+          label="Driver"
+          style={styles.button}
+          onPress={() =>
+            router.push({
+              pathname: "/(auth)/signup",
+              params: { role: "driver" },
+            })
+          }
+        >
+          <Ionicons name="car-outline" size={28} color="white" />
+        </Button>
 
-          <Button
-            label="Passenger"
-            style={styles.button}
-            onPress={() =>
-              router.push({
-                pathname: "/(auth)/signup",
-                params: { role: "customer" },
-              })
-            }
-          >
-            <Ionicons name="person-outline" size={28} color="white" />
-          </Button>
-
-          <Button
-            label="Driver"
-            style={styles.button}
-            onPress={() =>
-              router.push({
-                pathname: "/(auth)/signup",
-                params: { role: "driver" },
-              })
-            }
-          >
-            <Ionicons name="car-outline" size={28} color="white" />
-          </Button>
-
-          <Text
-            style={styles.loginText}
-            onPress={() => router.push("/(auth)/login")}
-          >
-            Already have an account?{" "}
-            <Text style={styles.loginLink}>Sign In</Text>
-          </Text>
-        </SafeAreaView>
-      </ImageBackground>
-    </>
+        {/* Already have an account? */}
+        <Text
+          style={styles.loginText}
+          onPress={() => router.push("/(auth)/login")}
+        >
+          Already have an account? <Text style={styles.loginLink}>Sign In</Text>
+        </Text>
+      </SafeAreaView>
+    </ImageBackground>
   );
 }
 

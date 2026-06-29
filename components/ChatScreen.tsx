@@ -1,4 +1,9 @@
 // components/ChatScreen.tsx
+//
+// Realtime chat between a customer and driver for an active booking.
+// Finds the user's current active booking, loads message history,
+// and subscribes to new messages so they appear instantly on both ends.
+
 import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import React, { useEffect, useRef, useState } from "react";
@@ -20,7 +25,7 @@ export default function ChatScreen({ userRole = "customer" }) {
   const [userId, setUserId] = useState("");
   const [bookingId, setBookingId] = useState("");
   const flatListRef = useRef<FlatList>(null);
-  const channelRef = useRef<any>(null); // ← NEW: keep track of the active channel
+  const channelRef = useRef<any>(null); // tracks the active realtime channel for cleanup
 
   const quickReplies =
     userRole === "driver"
@@ -40,7 +45,7 @@ export default function ChatScreen({ userRole = "customer" }) {
         ];
 
   useEffect(() => {
-    let isMounted = true; // ← NEW: prevents setup running twice / after unmount
+    let isMounted = true; // guards against state updates after the screen has closed
 
     const setup = async () => {
       const {
@@ -68,8 +73,8 @@ export default function ChatScreen({ userRole = "customer" }) {
 
     setup();
 
-    // ← NEW: cleanup runs when component unmounts (screen closes)
-    // This removes the OLD channel so a new one can be created safely
+    // Remove the realtime channel when this screen closes, so it doesn't
+    // linger and conflict with a new one if the chat is reopened.
     return () => {
       isMounted = false;
       if (channelRef.current) {
@@ -90,8 +95,9 @@ export default function ChatScreen({ userRole = "customer" }) {
   };
 
   const subscribeToMessages = (bId: string) => {
-    // ← FIXED: unique channel name per booking, not shared "messages" for everyone
-    // This stops the "cannot add postgres_changes after subscribe()" crash
+    // Each booking gets its own channel name. Using one shared name across
+    // all chats would cause "cannot add postgres_changes after subscribe()"
+    // errors once more than one chat screen is active.
     const channel = supabase
       .channel(`messages-${bId}`)
       .on(
@@ -109,7 +115,7 @@ export default function ChatScreen({ userRole = "customer" }) {
       )
       .subscribe();
 
-    channelRef.current = channel; // save reference so we can clean it up later
+    channelRef.current = channel;
   };
 
   const sendMessage = async (text?: string) => {

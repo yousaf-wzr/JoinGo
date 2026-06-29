@@ -1,6 +1,6 @@
 import Button from "@/components/button";
 import InputField from "@/components/text-Input";
-import { supabase } from "@/config/supabaseConfig"; // ← NEW
+import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
 import { useRouter } from "expo-router";
@@ -39,24 +39,23 @@ export default function DriverRequirementsScreen() {
     setShowConfirmModal(true);
   };
 
-  // ← CHANGED: now saves to Supabase and shows pending message
+  // Saves the driver's vehicle details and keeps their account pending
+  // until an admin approves them from the Supabase dashboard.
   const confirmContinue = async () => {
     setLoading(true);
 
-    // Get the logged in driver
     const {
       data: { user },
     } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Save vehicle info + keep status as "pending" (needs admin approval)
     const { error } = await supabase
       .from("profiles")
       .update({
         car_model: carModel,
         license_number: licenseNumber,
         vehicle_type: mode,
-        status: "pending", // driver can't drive until approved
+        status: "pending",
       })
       .eq("id", user.id);
 
@@ -67,7 +66,6 @@ export default function DriverRequirementsScreen() {
       return;
     }
 
-    // Show success/pending message instead of going to driverHome
     setModalType("success");
   };
 

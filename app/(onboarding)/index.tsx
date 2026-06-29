@@ -1,5 +1,10 @@
+// app/(onboarding)/index.tsx
+//
+// First-launch intro screens. Shown once, then skipped on future app opens
+// by checking a flag saved in AsyncStorage.
+
 import COLORS from "@/constants/color";
-import AsyncStorage from "@react-native-async-storage/async-storage"; // ← NEW: to remember if user already onboarded
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { router } from "expo-router";
 import { useRef, useState } from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -27,7 +32,7 @@ export const onboarding = [
     image: require("../../assets/images/onboarding3.png"),
     title: "Your ride, your way. Let's go!",
     description:
-      "Enter your destination, sit back, and let us take care of the rest.", // ← FIXED: "reset" → "rest"
+      "Enter your destination, sit back, and let us take care of the rest.",
   },
 ];
 
@@ -36,23 +41,18 @@ const Onboarding = () => {
   const [activeIndex, setActiveIndex] = useState(0);
   const isLastSlide = activeIndex === onboarding.length - 1;
 
-  // ← NEW: this runs when user taps Skip or Get Started
-  // It saves "onboarded = true" so next time app opens, we skip this screen
+  // Saves a flag so the app skips straight to role selection on future launches
   const handleFinish = async () => {
-    // Think of AsyncStorage like a tiny notepad on the phone
-    // We write "hasOnboarded" = "true" so we remember next time
     await AsyncStorage.setItem("hasOnboarded", "true");
     router.replace("/(role)");
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Skip Button */}
       <TouchableOpacity onPress={handleFinish} style={styles.skipButton}>
         <Text style={styles.skipText}>Skip</Text>
       </TouchableOpacity>
 
-      {/* Swiper Slides */}
       <Swiper
         ref={swiperRef}
         loop={false}
@@ -64,7 +64,7 @@ const Onboarding = () => {
           <View key={item.id} style={styles.slide}>
             <Image
               source={item.image}
-              style={styles.image} // ← FIXED: added width
+              style={styles.image}
               resizeMode="contain"
             />
             <View style={styles.titleContainer}>
@@ -75,14 +75,11 @@ const Onboarding = () => {
         ))}
       </Swiper>
 
-      {/* Next / Get Started Button */}
       <View style={styles.buttonContainer}>
         <CustomButton
           label={isLastSlide ? "Get Started" : "Next"}
           onPress={() =>
-            isLastSlide
-              ? handleFinish() // ← CHANGED: now saves the flag too
-              : swiperRef.current?.scrollBy(1)
+            isLastSlide ? handleFinish() : swiperRef.current?.scrollBy(1)
           }
           style={styles.button}
         />
@@ -125,11 +122,11 @@ const styles = StyleSheet.create({
   slide: {
     flex: 1,
     alignItems: "center",
-    justifyContent: "center", // ← FIXED: centers content vertically
-    gap: 30, // ← FIXED: reduced from 50 to 30
+    justifyContent: "center",
+    gap: 30,
   },
   image: {
-    width: "100%", // ← FIXED: added width so image shows properly
+    width: "100%",
     height: 300,
   },
   titleContainer: {

@@ -1,5 +1,5 @@
 // app/driverBooking.tsx
-import { supabase } from "@/config/supabaseConfig"; // ← CHANGED: added so we can update the database
+import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import {
   faCircleCheck,
@@ -152,18 +152,17 @@ export default function DriverBooking() {
   };
 
   const onStartTrip = async () => {
-    // CHANGED: tell Supabase this booking is now "accepted"
-    // .update() changes a row, .eq("id", data.id) finds the right one
+    // Mark the booking as accepted so the customer's screen updates in real time
     await supabase
       .from("bookings")
       .update({ status: "accepted" })
       .eq("id", data.id);
 
-    setStage("toDropoff"); // then move to next stage on screen
+    setStage("toDropoff");
   };
   const onCompleteTrip = () => setShowComplete(true);
   const confirmComplete = async () => {
-    // CHANGED: tell Supabase this booking is now "completed"
+    // Mark the booking as completed so it moves out of "active" lists on both sides
     await supabase
       .from("bookings")
       .update({ status: "completed" })

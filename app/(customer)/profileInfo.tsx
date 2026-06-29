@@ -3,7 +3,7 @@ import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
 import FONTS from "@/constants/fonts";
 import { FontAwesome } from "@expo/vector-icons";
-import * as ImagePicker from "expo-image-picker"; // ← NEW: real image picker
+import * as ImagePicker from "expo-image-picker";
 import React, { useEffect, useState } from "react";
 import {
   Alert,

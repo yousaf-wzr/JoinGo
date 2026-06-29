@@ -48,8 +48,8 @@ export default function ProfileScreen() {
   const [isDriver, setIsDriver] = useState(false);
   const [username, setUsername] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
-  const [showTerms, setShowTerms] = useState(false); // ← NEW
-  const [showSupport, setShowSupport] = useState(false); // ← NEW
+  const [showTerms, setShowTerms] = useState(false);
+  const [showSupport, setShowSupport] = useState(false);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -215,24 +215,24 @@ export default function ProfileScreen() {
             {/* Phone */}
             <TouchableOpacity
               style={styles.supportOption}
-              onPress={() => Linking.openURL("tel:+923085233182")}
+              onPress={() => Linking.openURL("tel:+923001234567")}
             >
               <Text style={styles.supportIcon}>📞</Text>
               <View>
                 <Text style={styles.supportLabel}>Call Us</Text>
-                <Text style={styles.supportValue}>+92 3085233182</Text>
+                <Text style={styles.supportValue}>+92 300 1234567</Text>
               </View>
             </TouchableOpacity>
 
             {/* WhatsApp */}
             <TouchableOpacity
               style={styles.supportOption}
-              onPress={() => Linking.openURL("https://wa.me/923349052910")}
+              onPress={() => Linking.openURL("https://wa.me/923001234567")}
             >
               <Text style={styles.supportIcon}>💬</Text>
               <View>
                 <Text style={styles.supportLabel}>WhatsApp</Text>
-                <Text style={styles.supportValue}>+92 3349052910</Text>
+                <Text style={styles.supportValue}>+92 300 1234567</Text>
               </View>
             </TouchableOpacity>
 

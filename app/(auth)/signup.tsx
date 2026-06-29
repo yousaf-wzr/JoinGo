@@ -30,7 +30,6 @@ const Signup = () => {
   };
 
   const handleSignup = async () => {
-    // Step 2: Check if fields are empty
     if (!fullName || !email || !password) {
       Alert.alert("Error", "Please fill in all fields.");
       return;
@@ -39,24 +38,23 @@ const Signup = () => {
     setLoading(true);
 
     try {
-      // Step 3: Call Supabase to create a new account
-      // This sends email + password to Supabase Auth
+      // Create the account in Supabase Auth (handles email + password)
       const { data, error } = await supabase.auth.signUp({
         email: email,
         password: password,
         options: {
-          data: { full_name: fullName }, // Save name in user profile
+          data: { full_name: fullName },
         },
       });
 
-      // Step 4: If Supabase returns an error, show it
       if (error) {
         Alert.alert("Signup Failed", error.message);
         return;
       }
 
-      // Step 4.5: Save the user's name, role, and status to our profiles table
-      // drivers start as "pending" (need admin approval), customers are "approved" immediately
+      // Auth only stores email/password. We also need a row in "profiles"
+      // for the name, role, and approval status (drivers start "pending",
+      // customers start "approved" immediately).
       if (data.user) {
         const { error: profileError } = await supabase.from("profiles").insert({
           id: data.user.id,
@@ -74,7 +72,8 @@ const Signup = () => {
           return;
         }
       } else {
-        // Email confirmation is ON — user needs to confirm email first
+        // If email confirmation is enabled in Supabase, data.user is null
+        // until the user confirms their email — send them to login instead.
         Alert.alert(
           "Check Your Email",
           "We sent a confirmation link to your email. Please confirm it then log in.",
@@ -83,7 +82,7 @@ const Signup = () => {
         return;
       }
 
-      // Step 5: If signup worked, go to the right screen based on role
+      // Route to the right screen based on the role chosen earlier
       if (role === "driver") {
         router.replace("/(driver)/requirements");
       } else if (role === "customer" || role === "passenger") {
@@ -94,7 +93,6 @@ const Signup = () => {
     } catch (error) {
       Alert.alert("Error", "Something went wrong. Please try again.");
     } finally {
-      // Step 6: Always stop the loading spinner at the end
       setLoading(false);
     }
   };

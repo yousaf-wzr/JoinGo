@@ -181,7 +181,8 @@ const HomeScreen: React.FC = () => {
       );
       return;
     }
-    // Navigate to booking process screen
+    // Navigate to the driver search screen with both coordinates
+    // (for distance/map use) and readable address text (for display + storage)
     router.push({
       pathname: "/bookingProcess",
       params: {
@@ -192,8 +193,8 @@ const HomeScreen: React.FC = () => {
         price: price || 0,
         distanceKm: distanceKm || 0,
         vehicleType,
-        pickup, // ← NEW: the actual address text e.g. "Mingora, KPK"
-        dropoff, // ← NEW: the actual address text e.g. "Malamjaba"
+        pickup,
+        dropoff,
       },
     });
   };

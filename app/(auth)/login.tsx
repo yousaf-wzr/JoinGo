@@ -17,7 +17,6 @@ import {
 } from "react-native";
 
 const Login = () => {
-  // ← FIXED: was named "Signup"
   const router = useRouter();
 
   const [email, setEmail] = useState("");
@@ -25,7 +24,6 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
-    // Step 1: Check fields are not empty
     if (!email || !password) {
       Alert.alert("Error", "Please fill in all fields.");
       return;
@@ -34,35 +32,32 @@ const Login = () => {
     setLoading(true);
 
     try {
-      // Step 2: Ask Supabase to check email + password
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      // Step 3: If wrong email/password, show error
       if (error) {
         Alert.alert("Login Failed", error.message);
         return;
       }
 
-      // Step 4: Get this user's role from our profiles table
-      // We can't trust params for role — always read from DB after login
+      // Role is always read fresh from the profiles table after login,
+      // rather than trusted from navigation params, since those can be
+      // missing or stale.
       const { data: profile } = await supabase
         .from("profiles")
         .select("role, status")
         .eq("id", data.user.id)
         .single();
 
-      // Step 5: Navigate based on role
       if (profile?.role === "driver") {
-        // Check if driver is approved
         if (profile.status === "pending") {
           Alert.alert(
             "Pending Approval",
             "Your driver account is still under review. Please wait for approval.",
           );
-          await supabase.auth.signOut(); // log them out until approved
+          await supabase.auth.signOut();
           return;
         }
         router.replace("/(driver)/driverHome");

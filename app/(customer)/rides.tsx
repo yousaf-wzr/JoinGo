@@ -1,8 +1,8 @@
 import RideCard from "@/components/ride-card";
 import { supabase } from "@/config/supabaseConfig";
 import COLORS from "@/constants/color";
-import { useFocusEffect } from "expo-router"; // ← NEW
-import React, { useCallback, useState } from "react"; // ← CHANGED: useCallback added
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useState } from "react";
 import { FlatList, SafeAreaView, StyleSheet, Text } from "react-native";
 
 const Rides = () => {
@@ -23,9 +23,8 @@ const Rides = () => {
     if (data) setRides(data);
   }, []);
 
-  // ← FIXED: was useEffect (runs once on mount only)
-  // useFocusEffect re-runs EVERY time this screen comes into view —
-  // so a ride booked just now shows up immediately when you switch to this tab
+  // Refetches every time this screen comes into focus (not just on first
+  // mount), so a ride booked moments ago shows up immediately on this tab.
   useFocusEffect(
     useCallback(() => {
       fetchRides();
